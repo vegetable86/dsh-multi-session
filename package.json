@@ -51,6 +51,7 @@
     "release": "node scripts/pack-release.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-plugin-market-index": "^0.2.1-alpha.4",
     "jsdom": "^29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

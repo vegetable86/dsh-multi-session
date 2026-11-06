@@ -1,0 +1,22 @@
+# Template for https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
+#
+# That catalog is a list of GitHub repositories, not npm packages, so this file
+# can only be submitted once the plugin's source is public.
+#
+# 1. Create a public repository (suggested name: dsh-multi-session) and push this
+#    directory to it. The root package.json already declares dsh.bundle.patch,
+#    which is what the catalog checks.
+# 2. Copy this file to data/plugins/<owner>__<repo>.yml in a fork of the catalog.
+# 3. Replace OWNER/REPO below, then open a pull request.
+#
+# File name example: data/plugins/vegataa__dsh-multi-session.yml
+
+url: https://github.com/OWNER/REPO
+name: OWNER/REPO
+category: ui
+description:
+  en: Split one page into as many session panes as you like, each with the full transcript and composer, and create new sessions in a pane.
+  zh: 把同一页面切成任意数量的会话格子，每格都是完整的对话与输入框，还能在格子里直接新建会话。
+# Optional: a GitHub-hosted raster tile (PNG/JPEG/WebP). Without it the market
+# falls back to the repository owner's avatar.
+# icon: https://raw.githubusercontent.com/OWNER/REPO/main/assets/icon-180.png

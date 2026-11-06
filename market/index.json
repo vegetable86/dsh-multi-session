@@ -1,0 +1,48 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Multi-Session Market",
+    "zh": "多会话插件市场"
+  },
+  "description": {
+    "en": "A market index with the multi-session split view plugin for DeepSeek Harness.",
+    "zh": "仅收录 DeepSeek Harness 多会话分屏插件的市场索引。"
+  },
+  "plugins": [
+    {
+      "name": "@vegataa/dsh-multi-session",
+      "title": {
+        "en": "Multi-session",
+        "zh": "多会话"
+      },
+      "description": {
+        "en": "View several sessions side by side in one page",
+        "zh": "在同一页面并排查看多个会话"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSI+CiAgPHJlY3QgeD0iNiIgeT0iMTIiIHdpZHRoPSI1MiIgaGVpZ2h0PSI0MCIgcng9IjYiIHN0cm9rZT0iIzNiNmVmNSIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgPGxpbmUgeDE9IjI2IiB5MT0iMTIiIHgyPSIyNiIgeTI9IjUyIiBzdHJva2U9IiMzYjZlZjUiIHN0cm9rZS13aWR0aD0iNCIvPgogIDxsaW5lIHgxPSIyNiIgeTE9IjM4IiB4Mj0iNTgiIHkyPSIzOCIgc3Ryb2tlPSIjM2I2ZWY1IiBzdHJva2Utd2lkdGg9IjQiLz4KPC9zdmc+Cg==",
+      "author": "vegataa",
+      "metadata": {
+        "keywords": [
+          "dsh",
+          "dsh-bundle",
+          "dsh-plugin",
+          "deepseek-harness",
+          "multi-session",
+          "split-view"
+        ]
+      },
+      "dist-tags": {
+        "latest": "0.3.1"
+      },
+      "versions": [
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1793942229,
+          "source": {
+            "type": "npm"
+          }
+        }
+      ]
+    }
+  ]
+}
