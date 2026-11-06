@@ -7,6 +7,8 @@ window.__ModuleLoader__.load({
 
     /** Client locale namespace. */
     const NS = 'multisession'
+    /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
+    const VERSION = '0.4.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -17,7 +19,7 @@ window.__ModuleLoader__.load({
     /** Narrowest column that still fits a conversation; drives the auto column count. */
     const MIN_PANE_WIDTH = 380
     /** Below this width the free canvas is unusable, so panes stack vertically. */
-    const NARROW_WIDTH = 680
+    const NARROW_WIDTH = 520
     /** Smallest pane the user can drag down to, in CSS pixels. */
     const MIN_PANE_W = 260
     const MIN_PANE_H = 180
@@ -160,8 +162,8 @@ window.__ModuleLoader__.load({
       dragBar: { cursor: 'grab', userSelect: 'none', touchAction: 'none' },
       dragging: { cursor: 'grabbing' },
       /* Grab strips live in the gap around a pane, never on top of its scrollbar. */
-      gripE: { position: 'absolute', width: 12, zIndex: 60, cursor: 'ew-resize', touchAction: 'none' },
-      gripS: { position: 'absolute', height: 12, zIndex: 60, cursor: 'ns-resize', touchAction: 'none' },
+      gripE: { position: 'absolute', width: 14, zIndex: 60, cursor: 'ew-resize', touchAction: 'none' },
+      gripS: { position: 'absolute', height: 14, zIndex: 60, cursor: 'ns-resize', touchAction: 'none' },
       gripSE: { position: 'absolute', width: 16, height: 16, zIndex: 60, cursor: 'nwse-resize', touchAction: 'none' },
       dot: { width: 7, height: 7, borderRadius: '50%', flex: '0 0 auto' },
       titleButton: {
@@ -1221,6 +1223,7 @@ window.__ModuleLoader__.load({
         body = h(React.Fragment, null,
           h('div', { style: styles.toolbar },
             h('span', { style: styles.toolbarTitle }, t('panelLabel')),
+            h('span', { style: styles.toolbarMeta, title: 'dsh-multi-session ' + VERSION }, 'v' + VERSION),
             h('span', { style: styles.toolbarMeta }, panes.length + ' ' + t('paneCount')),
             h('span', { style: styles.spacer }),
             h('button', {
