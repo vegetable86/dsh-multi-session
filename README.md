@@ -1,6 +1,8 @@
-# 多会话面板（@local/dsh-multi-session）
+# 多会话面板（dsh-multi-session）
 
 在 DeepSeek Harness 里把多个会话并排看：一个独立的「多会话」主面板，格子数量不设上限，每格绑定一个已有会话，每格都是完整的原生对话（消息流 + 输入框）。
+
+npm 包：`@vegataa/dsh-multi-session`
 
 ## 用法
 
@@ -34,6 +36,12 @@ client.js       # 客户端 bundle：面板、格子、选择器、持久化、i
 cordis.patch.yml
 locale/*.json   # 面板名称与描述
 icon.svg
-scripts/        # 冒烟测试
+scripts/        # 冒烟测试、发布打包、市场索引生成
+market/         # 插件市场索引与目录提交模板
 docs/superpowers/{specs,plans}/
+LICENSE
 ```
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。
