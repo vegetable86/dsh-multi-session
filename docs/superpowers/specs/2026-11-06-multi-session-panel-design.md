@@ -217,8 +217,20 @@ MultiSessionPage                // main 槽位条目，root scope
   - 拖动过程中只改 `draft`，松手才写入布局并持久化；鼠标位移小于 2px 视为点击。
 - 「均分」：把所有 `rowWeights` 与 `colWeights` 重置为 1，分隔条回到平均分配。
 - 增删格子：新格子先填最后一行剩余的位置，满了再开新行（新行权重 1）；关闭格子后若某行空了，该行连同它的权重一起删除。
-- 最大化：只渲染被最大化的那一格，铺满整个面板；`Esc` 或「还原」退出。
+- 最大化：v0.5 是「只渲染被最大化的那一格」，v0.6 起改为覆盖层、其余格保持挂载（见 §18）；`Esc` 或「还原」退出。
 - 布局用 CSS flex 实现：外层 `flex-direction: column`，每行 `flex-grow: rowWeight; flex-basis: 0`；行内每格 `flex-grow: colWeight; flex-basis: 0`。这样浏览器负责像素换算，窗口缩放自动跟随，不需要 ResizeObserver，也不会出现「面板没铺满」的空白。
 - 存储护栏：`normalizeRows` 只保留已知格子 id、去重、丢掉空行，并保证每个格子都有归属；`normalizeLayout` 接受 v1/v2/v3，权重必须是正数。
 - 不做：拖拽移动格子位置、任意嵌套切分（只有「行 → 两格」两级）、撤销、吸附。
 
+
+## 18. v0.6 性能与稳定
+
+- 背景：v0.5 每格都是一份完整的 `conversation.content`。格子一多，拖动分隔条会重算所有格的样式；任意一格抛错会把该槽位条目整块打空；DSH 升级若改了工厂签名，整个面板都不可用；最大化会重挂载对话，滚动位置和正在流式的回复都会丢。
+- 改动：
+  1. **重渲染隔离**：模块级 `PaneShell = React.memo(...)`，把格子外壳（标题栏 + 身体 + 选择器）与父级的布局状态隔开；父级的回调全部用 `useCallback` 保持稳定引用。拖动分隔条时只有布局容器和分隔条重算，各格的对话组件不重渲染。
+  2. **双层错误边界**：格子级 `PaneBoundary` 捕获后按 600ms / 1200ms 退避自动重建两次，仍失败才显示错误卡片，卡片上有「重试」；面板级 `PageBoundary` 兜住整块面板的异常，提供「清空布局并重置」（先 `localStorage.removeItem` 再重挂）。
+  3. **工厂槽降级**：`renderFactorySlot('conversation.content', ...)` 包 `try/catch`。失败时 `console.error('[multi-session] conversation.content is unavailable', error)`，该格只显示「此视图暂不可用」+ 重试按钮，不影响其它格；重试通过递增 `attempt` 同时作为子树 `key`，强制重建。
+  4. **会话引用可重试**：`usePaneReference(..., retryToken)` 把重试计数放进依赖，`SessionProvider` 的 `empty` 分支与失败卡片都接到同一个 `retry`。
+  5. **最大化不重挂载**：所有格子始终挂载，最大化只是把目标格改成 `position: absolute; inset: 0; z-index: 20` 的覆盖层，其余格 `visibility: hidden`。这样切换最大化会保留滚动位置、输入框草稿与流式回复。
+- 不做（留给后续）：非焦点格降频/虚拟化、流式消息节流、跨格广播。当前所有格子保持实时渲染，靠 memo 与边界控制成本。
+- 验收：`node --check client.js`、`scripts/smoke.mjs`、`scripts/render-smoke.mjs` 全绿；单格工厂抛错只降级该格；面板级异常可一键重置；最大化/还原不丢对话状态。

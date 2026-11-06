@@ -200,6 +200,23 @@ await act(async () => {
 })
 const paneHtml = paneContainer.innerHTML
 
+// A conversation contract that throws must degrade to a message, not blank the panel.
+const brokenContainer = document.createElement('div')
+const brokenRoot = createRoot(brokenContainer)
+await act(async () => {
+  brokenRoot.render(React.createElement(pane.comp, {
+    t: key => key,
+    sessionId: 'session-a',
+    useSession: selector => selector(session),
+    useConversation: selector => selector(conversation),
+    useSessions,
+    renderFactorySlot: () => { throw new Error('factory gone') },
+    renderSlot: () => null,
+  }))
+})
+const brokenHtml = brokenContainer.innerHTML
+await act(async () => { brokenRoot.unmount() })
+
 const iconContainer = document.createElement('div')
 const iconRoot = createRoot(iconContainer)
 await act(async () => { iconRoot.render(React.createElement(icon.comp, { size: 16, active: false })) })
@@ -217,6 +234,8 @@ const checks = [
   [paneHtml.includes('data-variant="embedded"'), 'factory variant is embedded'],
   [paneHtml.includes('data-phase="active"'), 'phase is active for a running session'],
   [paneHtml.includes('data-view="function"'), 'views slot override is a component'],
+  [brokenHtml.includes('viewUnavailable'), 'a broken conversation contract degrades to a message'],
+  [brokenHtml.includes('retry'), 'the degraded pane still offers a retry'],
   [iconHtml.includes('<svg'), 'sidebar icon renders svg'],
   [created.length === 1 && created[0] && created[0].workspaceId === 'ws-1', 'new session inherits the pane workspace'],
   [createdHtml.includes('data-session="fresh-session-1234"'), 'pane binds the created session'],
@@ -303,14 +322,14 @@ const dragRoot = createRoot(dragContainer)
 await act(async () => { dragRoot.render(React.createElement(main.comp, mainProps)) })
 stubHost(dragContainer)
 const pointer = (type, x, y) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y })
-const rowDivs = () => Array.from(dragContainer.querySelectorAll('[data-multisession-host] > div'))
-  .filter(element => element.style.flexDirection === 'row')
+const rowDivs = () => Array.from(dragContainer.querySelectorAll('[data-multisession-host] div'))
+  .filter(element => element.style.flexDirection === 'row' && element.style.display === 'flex')
 const weight = id => Number(paneBox(dragContainer, id).flexGrow)
 
 checks.push([rowDivs().length === 2, 'three panes tile as two rows'])
 checks.push([rowDivs()[0].contains(dragContainer.querySelector('[data-pane-id="d1"]')), 'the lone pane owns the first row'])
 
-const horizontal = dragContainer.querySelector('[data-multisession-host] > div[style*="row-resize"]')
+const horizontal = dragContainer.querySelector('[data-multisession-host] div[style*="row-resize"]')
 await act(async () => { horizontal.dispatchEvent(pointer('pointerdown', 600, 400)) })
 await act(async () => { emitWindow('pointermove', { clientX: 600, clientY: 500, cancelable: false }) })
 await act(async () => { emitWindow('pointerup', {}) })
@@ -350,6 +369,38 @@ checks.push([
   'even out clears the stored weights',
 ])
 await act(async () => { dragRoot.unmount() })
+
+// Maximising must not re-parent or unmount the conversation: every tile stays in the DOM,
+// the target becomes an absolute overlay and the rest are hidden.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 3,
+  panes: [
+    { id: 'x1', sessionId: 'session-a' },
+    { id: 'x2', sessionId: 'session-b' },
+  ],
+  rows: [['x1', 'x2']],
+  rowWeights: [1],
+  colWeights: { x1: 1, x2: 1 },
+  maximizedId: null,
+}))
+const maxContainer = document.createElement('div')
+document.body.appendChild(maxContainer)
+const maxRoot = createRoot(maxContainer)
+await act(async () => { maxRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(maxContainer)
+const click = element => act(async () => { element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+await click(maxContainer.querySelector('[data-pane-id="x2"] button[title="maximize"]'))
+const maximizedCell = maxContainer.querySelector('[data-pane-id="x2"]')
+checks.push([
+  maxContainer.querySelectorAll('[data-pane-id]').length === 2 && maximizedCell.style.position === 'absolute',
+  'maximising keeps every tile mounted, target becomes an overlay',
+])
+await click(maxContainer.querySelector('[data-pane-id="x2"] button[title="restore"]'))
+checks.push([
+  maxContainer.querySelector('[data-pane-id="x2"]').style.position !== 'absolute',
+  'restoring puts the tile back into its row',
+])
+await act(async () => { maxRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {

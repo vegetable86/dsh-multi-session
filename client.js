@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.5.0'
+    const VERSION = '0.6.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -51,6 +51,12 @@ window.__ModuleLoader__.load({
       retry: '重试',
       crashTitle: '这一格出错了',
       crashHint: '其他格子不受影响，可以重试或换一个会话',
+      autoRecovering: '这一格刚出了问题，正在自动重建…',
+      viewUnavailable: '当前版本无法嵌入对话视图',
+      viewUnavailableHint: 'DSH 的对话视图接口可能变了；其他格子与布局仍然可用',
+      panelCrashTitle: '多会话面板出错了',
+      panelCrashHint: '重置布局通常可以恢复；会话本身不会受影响',
+      resetLayout: '重置布局',
       loading: '加载中…',
       noSession: '未选择会话',
       paneCount: '格',
@@ -84,6 +90,12 @@ window.__ModuleLoader__.load({
       retry: 'Retry',
       crashTitle: 'This pane crashed',
       crashHint: 'Other panes are unaffected — retry or pick another session',
+      autoRecovering: 'This pane hit a problem and is rebuilding itself…',
+      viewUnavailable: 'This DSH version cannot embed a conversation view',
+      viewUnavailableHint: 'The conversation view contract may have changed; other panes and the layout still work',
+      panelCrashTitle: 'The multi-session panel crashed',
+      panelCrashHint: 'Resetting the layout usually recovers it; your sessions are untouched',
+      resetLayout: 'Reset layout',
       loading: 'Loading…',
       noSession: 'No session',
       paneCount: 'panes',
@@ -118,6 +130,7 @@ window.__ModuleLoader__.load({
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
+        position: 'relative',
         padding: PAD,
         boxSizing: 'border-box',
         overflow: 'hidden',
@@ -158,10 +171,12 @@ window.__ModuleLoader__.load({
       },
       pane: {
         position: 'relative',
+        flex: '1 1 auto',
         display: 'flex',
         flexDirection: 'column',
         minWidth: 0,
         minHeight: 0,
+        height: '100%',
         overflow: 'hidden',
         borderRadius: 10,
         border: '1px solid var(--dsw-alias-border-l1)',
@@ -619,12 +634,18 @@ window.__ModuleLoader__.load({
         error ? h('div', { style: styles.errorLine }, t('createFailed') + '：' + error) : null)
     }
 
-    function UnavailableState({ t, onPick, detail }) {
+    function UnavailableState({ t, onPick, onRetry, detail }) {
       return h('div', { style: styles.center },
         h('div', { style: Object.assign({}, styles.emptyTitle, { color: 'var(--dsw-alias-label-error)' }) }, t('unavailableTitle')),
         h('div', { style: styles.emptyHint }, t('unavailableHint')),
         detail ? h('div', { style: Object.assign({}, styles.emptyHint, { opacity: 0.7, fontSize: 11 }) }, detail) : null,
-        h('button', { type: 'button', style: styles.primaryButton, onClick: onPick }, t('switchSession')))
+        h('div', { style: styles.emptyActions },
+          onRetry ? h('button', {
+            type: 'button',
+            style: Object.assign({}, styles.primaryButton, { marginTop: 0 }),
+            onClick: onRetry,
+          }, t('retry')) : null,
+          h('button', { type: 'button', style: styles.ghostButton, onClick: onPick }, t('switchSession'))))
     }
 
     function LoadingState({ t }) {
@@ -771,7 +792,7 @@ window.__ModuleLoader__.load({
      * unmount; a failed attempt is retried when the catalogue learns the id
      * (a freshly created session) or when the list settles.
      */
-    function usePaneReference(pane, sessions, phase, known) {
+    function usePaneReference(pane, sessions, phase, known, retryToken) {
       const current = useRef(null)
       const [reference, setReference] = useState(null)
       const [failure, setFailure] = useState(null)
@@ -810,7 +831,7 @@ window.__ModuleLoader__.load({
           setReference(null)
           setFailure(error)
         }
-      }, [pane.sessionId, phase, known, sessions, release])
+      }, [pane.sessionId, phase, known, retryToken, sessions, release])
 
       useEffect(() => drop, [drop])
 
@@ -818,7 +839,9 @@ window.__ModuleLoader__.load({
     }
 
     /** Session-scoped slot body: the official conversation occurrence. */
-    function ConversationPane({ sessionId, useSession, useConversation, useSessions, renderFactorySlot }) {
+    function ConversationPane({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, t }) {
+      const tr = typeof t === 'function' ? t : key => key
+      const [attempt, setAttempt] = useState(0)
       const session = useSession(value => value)
       const conversation = useConversation(value => value)
       const activeTargets = conversation && conversation.activeTargets
@@ -837,10 +860,24 @@ window.__ModuleLoader__.load({
       const hero = shellPhase === 'blank' && !!session
         && (session.openState === 'open' || summaryBlank === true)
       const phase = settling ? 'settling' : hero ? 'hero' : 'active'
-      return h('div', { style: styles.conversation },
-        renderFactorySlot('conversation.content', { variant: 'embedded', phase, hero }, {
+      let content = null
+      try {
+        content = renderFactorySlot('conversation.content', { variant: 'embedded', phase, hero }, {
           slots: { views: FixedChatConversationView },
-        }))
+        })
+      } catch (error) {
+        /* The factory slot is an internal contract; never blank the whole panel over it. */
+        console.error('[multi-session] conversation.content is unavailable', error)
+        return h('div', { style: styles.center },
+          h('div', { style: styles.emptyTitle }, tr('viewUnavailable')),
+          h('div', { style: styles.emptyHint }, tr('viewUnavailableHint')),
+          h('button', {
+            type: 'button',
+            style: styles.primaryButton,
+            onClick: () => setAttempt(value => value + 1),
+          }, tr('retry')))
+      }
+      return h('div', { key: 'conversation-' + attempt, style: styles.conversation }, content)
     }
 
     function FixedChatConversationView(props) {
@@ -850,25 +887,80 @@ window.__ModuleLoader__.load({
     function PaneBody({ pane, sessions, SessionProvider, renderSlot, useSessions, t, onPick, onCreate, creating, createError }) {
       const phase = useSessions(state => state.phase)
       const known = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] !== undefined : true))
-      const { reference, failure } = usePaneReference(pane, sessions, phase, known)
+      const [retryToken, setRetryToken] = useState(0)
+      const { reference, failure } = usePaneReference(pane, sessions, phase, known, retryToken)
+      const retry = useCallback(() => setRetryToken(value => value + 1), [])
 
       if (!pane.sessionId) {
         return h(EmptyState, { t, onPick, onCreate, creating, error: createError })
       }
       if (!reference) {
         if (failure && (known || phase !== 'loading')) {
-          return h(UnavailableState, { t, onPick, detail: errorText(failure) })
+          return h(UnavailableState, { t, onPick, onRetry: retry, detail: errorText(failure) })
         }
         return h(LoadingState, { t })
       }
 
       return h(SessionProvider, {
         session: reference,
-        empty: () => (phase === 'loading' ? h(LoadingState, { t }) : h(UnavailableState, { t, onPick })),
+        empty: () => (phase === 'loading' ? h(LoadingState, { t }) : h(UnavailableState, { t, onPick, onRetry: retry })),
       }, renderSlot(PANE_SLOT, {}))
     }
 
     class PaneBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null, attempt: 0 }
+        this.reset = this.reset.bind(this)
+        this.timer = null
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+
+      componentDidCatch(error, info) {
+        console.error('[multi-session] pane crashed', error, info)
+        /* Rebuild the pane a couple of times before asking the user to step in:
+           most crashes come from a transient render race, not from the session. */
+        if (this.state.attempt < 2) {
+          this.timer = setTimeout(() => {
+            this.timer = null
+            this.setState(state => ({ error: null, attempt: state.attempt + 1 }))
+          }, 600 * (this.state.attempt + 1))
+        }
+      }
+
+      componentWillUnmount() {
+        if (this.timer) clearTimeout(this.timer)
+        this.timer = null
+      }
+
+      reset() {
+        if (this.timer) clearTimeout(this.timer)
+        this.timer = null
+        this.setState({ error: null, attempt: 0 })
+      }
+
+      render() {
+        const { error, attempt } = this.state
+        if (!error) return this.props.children
+        return this.props.fallback(error, this.reset, attempt < 2)
+      }
+    }
+
+    function PaneCrash({ error, t, onRetry, recovering }) {
+      return h('div', { style: styles.center },
+        h('div', { style: Object.assign({}, styles.emptyTitle, { color: 'var(--dsw-alias-label-error)' }) }, t('crashTitle')),
+        h('div', { style: styles.emptyHint }, recovering ? t('autoRecovering') : t('crashHint')),
+        h('div', { style: Object.assign({}, styles.emptyHint, { opacity: 0.7, fontSize: 11 }) }, errorText(error)),
+        h('button', { type: 'button', style: styles.primaryButton, onClick: onRetry }, t('retry')))
+    }
+
+    /* ---------------------------------------------------------------- page */
+
+    /** Catastrophic failures (bad stored layout, a slot contract change) still owe the user a way out. */
+    class PageBoundary extends React.Component {
       constructor(props) {
         super(props)
         this.state = { error: null }
@@ -880,31 +972,83 @@ window.__ModuleLoader__.load({
       }
 
       componentDidCatch(error, info) {
-        console.error('[multi-session] pane crashed', error, info)
+        console.error('[multi-session] panel crashed', error, info)
       }
 
       reset() {
+        try {
+          window.localStorage.removeItem(STORAGE_KEY)
+        } catch (_unavailable) {
+          /* Private mode or a blocked storage: nothing to clear. */
+        }
         this.setState({ error: null })
       }
 
       render() {
         const { error } = this.state
         if (!error) return this.props.children
-        return this.props.fallback(error, this.reset)
+        const t = typeof this.props.t === 'function' ? this.props.t : key => key
+        return h('div', { style: styles.center },
+          h('div', { style: Object.assign({}, styles.emptyTitle, { color: 'var(--dsw-alias-label-error)' }) }, t('panelCrashTitle')),
+          h('div', { style: styles.emptyHint }, t('panelCrashHint')),
+          h('div', { style: Object.assign({}, styles.emptyHint, { opacity: 0.7, fontSize: 11 }) }, errorText(error)),
+          h('button', { type: 'button', style: styles.primaryButton, onClick: this.reset }, t('resetLayout')))
       }
     }
 
-    function PaneCrash({ error, t, onRetry }) {
-      return h('div', { style: styles.center },
-        h('div', { style: Object.assign({}, styles.emptyTitle, { color: 'var(--dsw-alias-label-error)' }) }, t('crashTitle')),
-        h('div', { style: styles.emptyHint }, t('crashHint')),
-        h('div', { style: Object.assign({}, styles.emptyHint, { opacity: 0.7, fontSize: 11 }) }, errorText(error)),
-        h('button', { type: 'button', style: styles.primaryButton, onClick: onRetry }, t('retry')))
-    }
-
-    /* ---------------------------------------------------------------- page */
+    /**
+     * One pane, memoised. Everything it receives is referentially stable while
+     * the user drags a divider, so a drag only re-renders the tile wrappers and
+     * never the conversation trees inside the panes.
+     */
+    const PaneShell = React.memo(function PaneShell(props) {      const {
+        pane, maximized, canClose, picking, sessions, SessionProvider, renderSlot, useSessions, t,
+        creating, createError, onOpenPicker, onToggleMax, onClose, onAssign, onClear, onCreate, onDismissPicker,
+      } = props
+      return h('div', { style: styles.pane },
+        h(PaneHeader, {
+          pane,
+          maximized,
+          canClose,
+          useSessions,
+          t,
+          onPick: () => onOpenPicker(pane.id),
+          onToggleMax: () => onToggleMax(pane.id),
+          onClose: () => onClose(pane.id),
+        }),
+        h('div', { style: styles.body },
+          h(PaneBoundary, {
+            fallback: (error, retry, recovering) => h(PaneCrash, { error, t, onRetry: retry, recovering }),
+          }, h(PaneBody, {
+            pane,
+            sessions,
+            SessionProvider,
+            renderSlot,
+            useSessions,
+            t,
+            onPick: () => onOpenPicker(pane.id),
+            onCreate: () => onCreate(pane.id),
+            creating,
+            createError,
+          })),
+          picking ? h(SessionPicker, {
+            currentSessionId: pane.sessionId,
+            useSessions,
+            t,
+            onPick: sessionId => onAssign(pane.id, sessionId),
+            onClear: () => onClear(pane.id),
+            onCreate: () => onCreate(pane.id),
+            creating,
+            error: createError,
+            onClose: onDismissPicker,
+          }) : null))
+    })
 
     function MultiSessionPage(props) {
+      return h(PageBoundary, { t: props.t }, h(MultiSessionView, props))
+    }
+
+    function MultiSessionView(props) {
       const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, t } = props
       const [layout, setLayout] = useState(loadLayout)
       const [pickingId, setPickingId] = useState(null)
@@ -1008,6 +1152,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       const assignSession = useCallback((id, sessionId) => {
+        setCreateFailure(null)
         setLayout(previous => {
           if (!previous) return previous
           return Object.assign({}, previous, {
@@ -1019,6 +1164,9 @@ window.__ModuleLoader__.load({
 
       const clearPane = useCallback(id => { assignSession(id, null) }, [assignSession])
       const dismissPicker = useCallback(() => setPickingId(null), [])
+      const togglePicker = useCallback(id => {
+        setPickingId(current => (current === id ? null : id))
+      }, [])
 
       /**
        * Drag a divider between two tiles. The pair keeps its combined size, so
@@ -1157,55 +1305,39 @@ window.__ModuleLoader__.load({
         const byId = {}
         for (const pane of panes) byId[pane.id] = pane
 
-        const renderPane = (pane, style) => {
-          const picking = pickingId === pane.id
+        const renderCell = pane => {
+          const isMax = maximizedId === pane.id
           return h('div', {
             key: pane.id,
-            style: Object.assign({}, styles.pane, style),
             'data-pane-id': pane.id,
-          },
-            h(PaneHeader, {
-              pane,
-              maximized: maximizedId === pane.id,
-              canClose: panes.length > 1,
-              useSessions,
-              t,
-              onPick: () => setPickingId(picking ? null : pane.id),
-              onToggleMax: () => toggleMaximize(pane.id),
-              onClose: () => closePane(pane.id),
-            }),
-            h('div', { style: styles.body },
-              h(PaneBoundary, {
-                fallback: (error, retry) => h(PaneCrash, { error, t, onRetry: retry }),
-              }, h(PaneBody, {
-                pane,
-                sessions,
-                SessionProvider,
-                renderSlot,
-                useSessions,
-                t,
-                onPick: () => setPickingId(pane.id),
-                onCreate: () => createSession(pane.id),
-                creating: creatingPane === pane.id,
-                createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
-              })),
-              picking ? h(SessionPicker, {
-                currentSessionId: pane.sessionId,
-                useSessions,
-                t,
-                onPick: sessionId => {
-                  setCreateFailure(null)
-                  assignSession(pane.id, sessionId)
-                },
-                onClear: () => {
-                  setCreateFailure(null)
-                  clearPane(pane.id)
-                },
-                onCreate: () => createSession(pane.id),
-                creating: creatingPane === pane.id,
-                error: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
-                onClose: dismissPicker,
-              }) : null))
+            style: Object.assign(
+              { display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 },
+              isMax
+                /* The maximised tile covers the host instead of being re-parented, so the
+                   conversation (scroll position, stream) survives the toggle. */
+                ? { position: 'absolute', top: PAD, left: PAD, right: PAD, bottom: PAD, zIndex: 20, visibility: 'visible' }
+                : { flexGrow: colWeights[pane.id] || 1, flexBasis: 0 },
+            ),
+          }, h(PaneShell, {
+            pane,
+            maximized: isMax,
+          canClose: panes.length > 1,
+          picking: pickingId === pane.id,
+          sessions,
+          SessionProvider,
+          renderSlot,
+          useSessions,
+          t,
+          creating: creatingPane === pane.id,
+          createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
+          onOpenPicker: togglePicker,
+          onToggleMax: toggleMaximize,
+          onClose: closePane,
+          onAssign: assignSession,
+          onClear: clearPane,
+          onCreate: createSession,
+          onDismissPicker: dismissPicker,
+        }))
         }
 
         /* Tiles never overlap: rows split the height, the panes of a row split its width. */
@@ -1223,7 +1355,7 @@ window.__ModuleLoader__.load({
                 onPointerDown: event => beginSplitDrag(event, 'col', rowIndex),
               }))
             }
-            cells.push(renderPane(pane, { flexGrow: colWeights[id] || 1, flexBasis: 0, minWidth: 0 }))
+            cells.push(renderCell(pane))
           })
           view.push(h('div', {
             key: 'row-' + rowIndex,
@@ -1238,8 +1370,6 @@ window.__ModuleLoader__.load({
             }))
           }
         })
-
-        const maximizedPane = maximizedId ? byId[maximizedId] : null
 
         body = h(React.Fragment, null,
           h('div', { style: styles.toolbar },
@@ -1261,10 +1391,19 @@ window.__ModuleLoader__.load({
             }, '+ ' + t('addPane'))),
           h('div', {
             ref: hostRef,
-            style: maximizedId ? styles.maximizedHost : styles.host,
+            style: styles.host,
             'data-multisession-host': '',
           },
-            maximizedPane ? renderPane(maximizedPane, { flex: '1 1 auto' }) : view))
+            h('div', {
+              style: {
+                display: 'flex',
+                flexDirection: 'column',
+                flex: '1 1 auto',
+                minHeight: 0,
+                /* While one tile is maximised the others stay mounted but invisible. */
+                visibility: maximizedId ? 'hidden' : 'visible',
+              },
+            }, view)))
       }
 
       return h('div', { ref: rootRef, style: styles.root }, body)

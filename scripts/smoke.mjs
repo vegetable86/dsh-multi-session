@@ -15,6 +15,7 @@ const React = {
     }
   },
   Fragment: 'Fragment',
+  memo: component => component,
   useState: v => [typeof v === 'function' ? v() : v, () => {}],
   useEffect: () => {},
   useLayoutEffect: () => {},

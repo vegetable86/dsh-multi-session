@@ -18,7 +18,10 @@ npm 包：`@vegataa/dsh-multi-session`
 - 只注册一个 `main` 面板（key `multisession`）和一个 `sidebar.panellist` 图标，普通对话页完全不受影响。
 - 每格通过 `<SessionProvider session={reference}>` 显式绑定会话，引用由 `sessions.retain(...)` 获取、卸载时 `release()`。
 - 格子内部用官方 `conversation.content` 工厂槽（`variant: 'embedded'`）渲染，得到的是原生对话组件，不是自绘的聊天界面。
-- 每格包一层错误边界：一格崩了不影响其他格。
+- 每格包两层错误边界：格子内的渲染异常会在 0.6s / 1.2s 后自动重建两次，仍失败才显示错误卡片（可手动「重试」）；整个面板崩了还有一层兜底，可以一键清掉布局重置。
+- `conversation.content` 是 Harness 的内部工厂槽，签名变了会抛错：每格对这次调用做了捕获，失败时只显示「此视图暂不可用」+ 重试，不会把整个面板打空。
+- 格子的外壳用 `React.memo` 包起来：拖动分隔条时只有父级容器重算样式，各格的对话组件不会跟着重渲染。
+- 最大化改为 CSS 覆盖层（其余格子 `visibility: hidden` 但保持挂载），切换最大化不会重挂载对话，滚动位置和正在流式的回复都保留。
 - 格子按「行 → 列」两级权重存储（v3 布局）：每行的 `rowWeights` 决定高度，每行内两格的 `colWeights` 决定宽度；拖动分隔条只改这两级权重，所以相邻格子永远互补、整块面板始终铺满。
 
 ## 开发
