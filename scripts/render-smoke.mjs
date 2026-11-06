@@ -26,18 +26,31 @@ const layout = {
 dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify(layout))
 
 let bundle
-/* Report a wide panel so the column logic runs for real. */
+/* Report a wide panel so the canvas geometry runs for real. */
 class FakeResizeObserver {
   constructor(callback) { this.callback = callback }
-  observe() { this.callback([{ contentRect: { width: 1400 } }]) }
+  observe() { this.callback([{ contentRect: { width: 1200, height: 800 } }]) }
   disconnect() {}
+}
+/* The plugin listens on window for pointer moves while dragging; jsdom's window
+   is not the sandbox object, so keep a tiny event registry the test can fire. */
+const windowListeners = new Map()
+const emitWindow = (type, event) => {
+  for (const fn of Array.from(windowListeners.get(type) || [])) fn(event)
 }
 const sandbox = {
   window: {
     __ModuleLoader__: { load: b => { bundle = b } },
     localStorage: dom.window.localStorage,
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      const set = windowListeners.get(type) || new Set()
+      set.add(fn)
+      windowListeners.set(type, set)
+    },
+    removeEventListener(type, fn) {
+      const set = windowListeners.get(type)
+      if (set) set.delete(fn)
+    },
   },
   ResizeObserver: FakeResizeObserver,
   console,
@@ -129,6 +142,19 @@ const mainProps = {
   renderFactorySlot: () => React.createElement('div', null, 'factory'),
   usePanelInfo: () => ({ id: 'multisession' }),
 }
+/* Inline geometry the plugin wrote on a pane, as a CSSStyleDeclaration. */
+const paneBox = (scope, id) => {
+  const element = scope.querySelector('[data-pane-id="' + id + '"]')
+  return element ? element.style : null
+}
+const stubCanvas = scope => {
+  const canvas = scope.querySelector('[data-multisession-canvas]')
+  if (canvas) {
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 800, right: 1200, bottom: 800, x: 0, y: 0 })
+  }
+  return canvas
+}
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 await act(async () => { root_.render(React.createElement(main.comp, mainProps)) })
 
 const mainHtml = container.innerHTML
@@ -179,7 +205,7 @@ const checks = [
   [bundle.id === '@local/dsh-multi-session', 'bundle id'],
   [mainHtml.includes('标题甲') && mainHtml.includes('标题乙'), 'main renders both pane titles'],
   [mainHtml.includes('data-slot="multisession.pane"'), 'each pane renders the owned session slot'],
-  [!!mainGrid && mainGrid.getAttribute('style').includes('repeat(2'), 'two panes fill a wide panel instead of leaving a dead column'],
+  [!!paneBox(container, 'p1') && paneBox(container, 'p1').left === '0px' && paneBox(container, 'p2').left === '600px' && paneBox(container, 'p1').width === '590px', 'two panes fill a wide panel instead of leaving a dead column'],
   [mainHtml.includes('data-provider="true"'), 'SessionProvider receives a retained reference'],
   [(mainHtml.match(/data-provider="true"/g) || []).length === 2, 'two session providers for two panes'],
   [releasesBeforeCreate === 0, 'references stay retained while mounted'],
@@ -239,8 +265,10 @@ document.body.appendChild(manyContainer)
 const manyRoot = createRoot(manyContainer)
 await act(async () => { manyRoot.render(React.createElement(main.comp, mainProps)) })
 const addButton = Array.from(manyContainer.querySelectorAll('button')).find(button => button.textContent.startsWith('+ '))
-const manyGrid = manyContainer.querySelector('[style*="grid-template-columns"]')
-checks.push([!!manyGrid && manyGrid.getAttribute('style').includes('repeat(3'), 'a wide panel fits six panes in three columns'])
+checks.push([
+  !!paneBox(manyContainer, 'm2') && paneBox(manyContainer, 'm2').left === '800px' && paneBox(manyContainer, 'm2').width === '390px',
+  'a wide panel fits six panes in three columns',
+])
 checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
 checks.push([manyContainer.textContent.includes('6 paneCount'), 'toolbar reports the pane count without a cap'])
 const headersBefore = manyContainer.querySelectorAll('button[title="switchSession"]').length
@@ -248,6 +276,54 @@ await act(async () => { addButton.dispatchEvent(new dom.window.MouseEvent('click
 const headersAfter = manyContainer.querySelectorAll('button[title="switchSession"]').length
 checks.push([headersBefore === 6 && headersAfter === 7, 'adding a seventh pane works'])
 await act(async () => { manyRoot.unmount() })
+
+// Free canvas: the title bar moves one pane, the corner grip resizes only that
+// pane, and auto-arrange drops every manual rectangle.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 2,
+  panes: [
+    { id: 'd1', sessionId: 'session-a' },
+    { id: 'd2', sessionId: 'session-b' },
+  ],
+  maximizedId: null,
+}))
+const dragContainer = document.createElement('div')
+document.body.appendChild(dragContainer)
+const dragRoot = createRoot(dragContainer)
+await act(async () => { dragRoot.render(React.createElement(main.comp, mainProps)) })
+stubCanvas(dragContainer)
+const pointer = (type, x, y) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y })
+const header = dragContainer.querySelector('[data-pane-id="d1"] > div')
+await act(async () => { header.dispatchEvent(pointer('pointerdown', 100, 100)) })
+await act(async () => { emitWindow('pointermove', { clientX: 220, clientY: 100, cancelable: false }) })
+await act(async () => { emitWindow('pointerup', {}) })
+checks.push([paneBox(dragContainer, 'd1').left === '120px', 'dragging the title bar moves one pane'])
+checks.push([paneBox(dragContainer, 'd2').left === '600px', 'moving one pane leaves its neighbour alone'])
+
+await sleep(260)
+const dragged = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  dragged.version === 2 && !!dragged.panes[0].rect && Math.abs(dragged.panes[0].rect.x - 0.1) < 0.01,
+  'the dragged rectangle is persisted as a fraction',
+])
+
+const grip = dragContainer.querySelector('[data-multisession-canvas] div[style*="nwse-resize"]')
+await act(async () => { grip.dispatchEvent(pointer('pointerdown', 600, 700)) })
+await act(async () => { emitWindow('pointermove', { clientX: 700, clientY: 700, cancelable: false }) })
+await act(async () => { emitWindow('pointerup', {}) })
+checks.push([paneBox(dragContainer, 'd1').width === '694px', 'dragging the corner grip resizes only that pane'])
+checks.push([paneBox(dragContainer, 'd2').width === '590px', 'resizing one pane leaves its neighbour alone'])
+
+const autoButton = Array.from(dragContainer.querySelectorAll('button')).find(button => button.getAttribute('title') === 'autoArrange')
+await act(async () => { autoButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+checks.push([
+  paneBox(dragContainer, 'd1').left === '0px' && paneBox(dragContainer, 'd1').width === '590px',
+  'auto arrange restores the tidy grid',
+])
+await sleep(260)
+const arranged = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([arranged.panes.every(item => !item.rect), 'auto arrange clears the stored geometry'])
+await act(async () => { dragRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {
