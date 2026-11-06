@@ -1,22 +1,15 @@
-# Template for https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
+# Entry for https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
 #
-# That catalog is a list of GitHub repositories, not npm packages, so this file
-# can only be submitted once the plugin's source is public.
-#
-# 1. Create a public repository (suggested name: dsh-multi-session) and push this
-#    directory to it. The root package.json already declares dsh.bundle.patch,
-#    which is what the catalog checks.
-# 2. Copy this file to data/plugins/<owner>__<repo>.yml in a fork of the catalog.
-# 3. Replace OWNER/REPO below, then open a pull request.
-#
-# File name example: data/plugins/vegataa__dsh-multi-session.yml
+# Copy this file to data/plugins/vegetable86__dsh-multi-session.yml in a fork of
+# the catalog and open a pull request. The catalog requires the repo to be at
+# least one day old, so the earliest sensible submission date is 2026-11-07.
 
-url: https://github.com/OWNER/REPO
-name: OWNER/REPO
+url: https://github.com/vegetable86/dsh-multi-session
+name: vegetable86/dsh-multi-session
 category: ui
 description:
-  en: Split one page into as many session panes as you like, each with the full transcript and composer, and create new sessions in a pane.
-  zh: 把同一页面切成任意数量的会话格子，每格都是完整的对话与输入框，还能在格子里直接新建会话。
+  en: 'Splits the main panel into any number of session panes, each rendering a full native conversation (transcript and composer) bound to a session; panes can be added, maximized and closed, new sessions can be created inside a pane, and the layout persists across restarts.'
+  zh: '把主面板切成任意数量的会话格子，每格都是完整的原生对话（消息流与输入框）；格子可增删、最大化、在格内直接新建会话，布局与会话绑定在重启后恢复。'
 # Optional: a GitHub-hosted raster tile (PNG/JPEG/WebP). Without it the market
 # falls back to the repository owner's avatar.
-# icon: https://raw.githubusercontent.com/OWNER/REPO/main/assets/icon-180.png
+# icon: https://raw.githubusercontent.com/vegetable86/dsh-multi-session/main/assets/icon-180.png
