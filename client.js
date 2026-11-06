@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.4.0'
+    const VERSION = '0.5.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -16,17 +16,13 @@ window.__ModuleLoader__.load({
     const STORAGE_KEY = 'dsh.multi-session.v1'
     /** Guard against a corrupted stored layout; the UI itself has no cap. */
     const STORED_PANE_LIMIT = 32
-    /** Narrowest column that still fits a conversation; drives the auto column count. */
-    const MIN_PANE_WIDTH = 380
-    /** Below this width the free canvas is unusable, so panes stack vertically. */
-    const NARROW_WIDTH = 520
-    /** Smallest pane the user can drag down to, in CSS pixels. */
-    const MIN_PANE_W = 260
-    const MIN_PANE_H = 180
-    /** Gap kept between neighbouring panes; the pane box inside a rect is inset by this. */
-    const PANE_GAP = 10
-    /** Drags land on an 8px grid, which keeps edges tidy without feeling sticky. */
-    const SNAP_STEP = 8
+    /** Thickness of the draggable border between two tiles, in CSS pixels. */
+    const SPLITTER = 6
+    /** Smallest tile the user can drag down to, in CSS pixels. */
+    const MIN_PANE_W = 200
+    const MIN_PANE_H = 140
+    /** Breathing room around the tiled area. */
+    const PAD = 8
     const REF_SOURCE = 'multisessionPane'
 
     const ZH = {
@@ -58,8 +54,8 @@ window.__ModuleLoader__.load({
       loading: '加载中…',
       noSession: '未选择会话',
       paneCount: '格',
-      autoArrange: '自动排列',
-      dragHint: '拖标题栏移动，拖右边/下边/右下角改大小',
+      autoArrange: '均分',
+      dragHint: '拖分隔条调整相邻格子的大小',
     }
 
     const EN = {
@@ -91,8 +87,8 @@ window.__ModuleLoader__.load({
       loading: 'Loading…',
       noSession: 'No session',
       paneCount: 'panes',
-      autoArrange: 'Auto arrange',
-      dragHint: 'Drag the title bar to move; drag the right/bottom/corner edge to resize',
+      autoArrange: 'Even out',
+      dragHint: 'Drag a divider to resize the tiles on both sides',
     }
 
     const styles = {
@@ -117,28 +113,48 @@ window.__ModuleLoader__.load({
       toolbarTitle: { fontSize: 13, fontWeight: 600, letterSpacing: '0.01em' },
       toolbarMeta: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)' },
       spacer: { flex: '1 1 auto', minWidth: 8 },
-      canvas: {
-        flex: '1 1 auto',
-        minHeight: 0,
-        position: 'relative',
-        overflow: 'hidden',
-      },
-      stack: {
+      host: {
         flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
-        padding: 12,
-        overflowY: 'auto',
-        overflowX: 'hidden',
+        padding: PAD,
+        boxSizing: 'border-box',
+        overflow: 'hidden',
       },
       maximizedHost: {
         flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
-        padding: 12,
+        padding: PAD,
+        boxSizing: 'border-box',
         overflow: 'hidden',
+      },
+      /* Rows share the height by weight; the panes inside a row share the width. */
+      tileRow: {
+        display: 'flex',
+        flexDirection: 'row',
+        flexBasis: 0,
+        minHeight: 0,
+        minWidth: 0,
+      },
+      splitterH: {
+        flex: '0 0 auto',
+        height: SPLITTER,
+        cursor: 'row-resize',
+        touchAction: 'none',
+        borderRadius: 3,
+        background: 'var(--dsw-alias-border-l1)',
+        opacity: 0.6,
+      },
+      splitterV: {
+        flex: '0 0 auto',
+        width: SPLITTER,
+        cursor: 'col-resize',
+        touchAction: 'none',
+        borderRadius: 3,
+        background: 'var(--dsw-alias-border-l1)',
+        opacity: 0.6,
       },
       pane: {
         position: 'relative',
@@ -159,12 +175,6 @@ window.__ModuleLoader__.load({
         padding: '6px 8px 6px 10px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
-      dragBar: { cursor: 'grab', userSelect: 'none', touchAction: 'none' },
-      dragging: { cursor: 'grabbing' },
-      /* Grab strips live in the gap around a pane, never on top of its scrollbar. */
-      gripE: { position: 'absolute', width: 14, zIndex: 60, cursor: 'ew-resize', touchAction: 'none' },
-      gripS: { position: 'absolute', height: 14, zIndex: 60, cursor: 'ns-resize', touchAction: 'none' },
-      gripSE: { position: 'absolute', width: 16, height: 16, zIndex: 60, cursor: 'nwse-resize', touchAction: 'none' },
       dot: { width: 7, height: 7, borderRadius: '50%', flex: '0 0 auto' },
       titleButton: {
         display: 'flex',
@@ -401,31 +411,66 @@ window.__ModuleLoader__.load({
       return 'pane-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
     }
 
-    /** Stored pane geometry is a fraction of the canvas, so it survives window resizes. */
-    function normalizeRect(raw) {
-      if (!raw || typeof raw !== 'object') return null
-      const read = key => (typeof raw[key] === 'number' && isFinite(raw[key]) ? raw[key] : null)
-      const x = read('x')
-      const y = read('y')
-      const w = read('w')
-      const h = read('h')
-      if (x === null || y === null || w === null || h === null) return null
-      if (w < 0.02 || h < 0.02) return null
-      const rect = {
-        x: Math.min(Math.max(x, 0), 1),
-        y: Math.min(Math.max(y, 0), 1),
-        w: Math.min(Math.max(w, 0.02), 1),
-        h: Math.min(Math.max(h, 0.02), 1),
+    /** Two panes per row; an odd count leaves the first row on its own. */
+    function defaultRows(ids) {
+      const rows = []
+      let index = 0
+      if (ids.length % 2 === 1) {
+        rows.push([ids[0]])
+        index = 1
       }
-      if (rect.x + rect.w > 1) rect.w = Math.max(0.02, 1 - rect.x)
-      if (rect.y + rect.h > 1) rect.h = Math.max(0.02, 1 - rect.y)
-      return rect
+      for (; index < ids.length; index += 2) rows.push(ids.slice(index, index + 2))
+      return rows
+    }
+
+    function positive(value, fallback) {
+      return typeof value === 'number' && isFinite(value) && value > 0 ? value : fallback
+    }
+
+    function makeLayout(panes, maximizedId) {
+      const ids = panes.map(pane => pane.id)
+      const rows = defaultRows(ids)
+      const colWeights = {}
+      for (const id of ids) colWeights[id] = 1
+      return {
+        panes,
+        rows,
+        rowWeights: rows.map(() => 1),
+        colWeights,
+        maximizedId: maximizedId || null,
+      }
+    }
+
+    /** Keep only known pane ids, and give every pane a row even if storage lost it. */
+    function normalizeRows(raw, order) {
+      const valid = new Set(order)
+      const used = new Set()
+      const rows = []
+      if (Array.isArray(raw)) {
+        for (const entry of raw) {
+          if (!Array.isArray(entry)) continue
+          let chunk = []
+          for (const id of entry) {
+            if (typeof id !== 'string' || !valid.has(id) || used.has(id)) continue
+            used.add(id)
+            chunk.push(id)
+            if (chunk.length === 2) {
+              rows.push(chunk)
+              chunk = []
+            }
+          }
+          if (chunk.length > 0) rows.push(chunk)
+        }
+      }
+      const missing = order.filter(id => !used.has(id))
+      for (const row of defaultRows(missing)) rows.push(row)
+      return rows.length > 0 ? rows : defaultRows(order)
     }
 
     function normalizeLayout(value) {
       if (!value || typeof value !== 'object') return null
-      /* Version 1 had no geometry: those panes simply fall back to the auto grid. */
-      if ((value.version !== 1 && value.version !== 2) || !Array.isArray(value.panes)) return null
+      if (value.version !== 1 && value.version !== 2 && value.version !== 3) return null
+      if (!Array.isArray(value.panes)) return null
       const panes = []
       const seen = new Set()
       for (const raw of value.panes.slice(0, STORED_PANE_LIMIT)) {
@@ -434,14 +479,20 @@ window.__ModuleLoader__.load({
         panes.push({
           id: raw.id,
           sessionId: typeof raw.sessionId === 'string' && raw.sessionId !== '' ? raw.sessionId : null,
-          rect: normalizeRect(raw.rect),
         })
       }
       if (panes.length === 0) return null
+      const order = panes.map(pane => pane.id)
+      const rows = normalizeRows(value.rows, order)
+      const storedRowWeights = Array.isArray(value.rowWeights) ? value.rowWeights : []
+      const rowWeights = rows.map((row, index) => positive(storedRowWeights[index], 1))
+      const storedColWeights = value.colWeights && typeof value.colWeights === 'object' ? value.colWeights : {}
+      const colWeights = {}
+      for (const id of order) colWeights[id] = positive(storedColWeights[id], 1)
       const maximizedId = typeof value.maximizedId === 'string' && seen.has(value.maximizedId)
         ? value.maximizedId
         : null
-      return { panes, maximizedId }
+      return { panes, rows, rowWeights, colWeights, maximizedId }
     }
 
     function loadLayout() {
@@ -457,8 +508,11 @@ window.__ModuleLoader__.load({
     function saveLayout(layout) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 2,
+          version: 3,
           panes: layout.panes,
+          rows: layout.rows,
+          rowWeights: layout.rowWeights,
+          colWeights: layout.colWeights,
           maximizedId: layout.maximizedId,
         }))
       } catch (_unavailable) {
@@ -488,60 +542,6 @@ window.__ModuleLoader__.load({
 
     function clamp(value, min, max) {
       return value < min ? min : value > max ? max : value
-    }
-
-    function snapPx(value) {
-      return Math.round(value / SNAP_STEP) * SNAP_STEP
-    }
-
-    /** Default tiling: as many columns as fit, a short last row stretched to fill it. */
-    function autoRects(panes, width, height) {
-      const count = panes.length
-      const room = width > 0 ? Math.max(1, Math.min(3, Math.floor(width / MIN_PANE_WIDTH))) : 2
-      const columns = Math.max(1, Math.min(room, count))
-      const rows = Math.max(1, Math.ceil(count / columns))
-      const cellH = height / rows
-      const rects = {}
-      panes.forEach((pane, index) => {
-        const row = Math.floor(index / columns)
-        const inRow = Math.min(columns, count - row * columns)
-        const cellW = width / inRow
-        rects[pane.id] = {
-          x: (index % columns) * cellW,
-          y: row * cellH,
-          w: cellW,
-          h: cellH,
-        }
-      })
-      return rects
-    }
-
-    /** Concrete pixels for every pane this frame: a stored fraction wins, else auto. */
-    function resolveRects(panes, width, height) {
-      const rects = autoRects(panes, width, height)
-      for (const pane of panes) {
-        const rect = pane.rect
-        if (rect) {
-          rects[pane.id] = {
-            x: rect.x * width,
-            y: rect.y * height,
-            w: rect.w * width,
-            h: rect.h * height,
-          }
-        }
-      }
-      return rects
-    }
-
-    function toFractions(rect, width, height) {
-      const w = width > 0 ? width : 1
-      const h = height > 0 ? height : 1
-      return {
-        x: clamp(rect.x / w, 0, 1),
-        y: clamp(rect.y / h, 0, 1),
-        w: clamp(rect.w / w, 0.02, 1),
-        h: clamp(rect.h / h, 0.02, 1),
-      }
     }
 
     /**
@@ -731,7 +731,7 @@ window.__ModuleLoader__.load({
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, canClose, movable, useSessions, t, onPick, onToggleMax, onClose, onDragStart }) {
+    function PaneHeader({ pane, maximized, canClose, useSessions, t, onPick, onToggleMax, onClose }) {
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
         ? row.displayTitle
@@ -740,18 +740,7 @@ window.__ModuleLoader__.load({
           : t('noSession')
       const running = !!(row && row.running)
       const [hover, setHover] = useState(false)
-      return h('div', {
-        style: movable ? Object.assign({}, styles.paneHeader, styles.dragBar) : styles.paneHeader,
-        title: movable ? t('dragHint') : undefined,
-        onPointerDown: movable
-          ? event => {
-            /* Buttons in the bar keep their own behaviour; only the bar itself drags. */
-            const target = event.target
-            if (target && typeof target.closest === 'function' && target.closest('button')) return
-            onDragStart(event)
-          }
-          : undefined,
-      },
+      return h('div', { style: styles.paneHeader },
         h('span', {
           style: Object.assign({}, styles.dot, {
             background: running
@@ -921,12 +910,9 @@ window.__ModuleLoader__.load({
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
-      const [width, setWidth] = useState(0)
-      const [height, setHeight] = useState(0)
       const [draft, setDraft] = useState(null)
-      const [zMap, setZMap] = useState({})
       const rootRef = useRef(null)
-      const canvasRef = useRef(null)
+      const hostRef = useRef(null)
       const dragRef = useRef(null)
       const phase = useSessions(state => state.phase)
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
@@ -943,7 +929,7 @@ window.__ModuleLoader__.load({
         } catch (_unavailable) {
           snapshot = null
         }
-        setLayout({ panes: defaultPanes(snapshot), maximizedId: null })
+        setLayout(makeLayout(defaultPanes(snapshot), null))
       }, [layout, phase, sessions])
 
       useEffect(() => {
@@ -952,22 +938,10 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(timer)
       }, [layout])
 
-      const hasLayout = layout !== null
-      useEffect(() => {
-        if (!hasLayout) return
-        const element = canvasRef.current
-        if (!element || typeof ResizeObserver === 'undefined') return
-        const observer = new ResizeObserver(entries => {
-          for (const entry of entries) {
-            setWidth(entry.contentRect.width)
-            setHeight(entry.contentRect.height)
-          }
-        })
-        observer.observe(element)
-        return () => observer.disconnect()
-      }, [hasLayout])
-
       const maximizedId = layout ? layout.maximizedId : null
+      /* Drag previews live in `draft` so the committed layout only changes on release. */
+      const rowWeights = layout ? (draft ? draft.rowWeights : layout.rowWeights) : []
+      const colWeights = layout ? (draft ? draft.colWeights : layout.colWeights) : {}
       useEffect(() => {
         if (!maximizedId) return
         const onKeyDown = event => {
@@ -981,14 +955,22 @@ window.__ModuleLoader__.load({
         const id = nextPaneId()
         setLayout(previous => {
           if (!previous) return previous
-          const next = { id, sessionId: null }
-          /* Once panes have been placed by hand, a new one lands in a cascade
-             instead of snapping the whole canvas back to the auto grid. */
-          if (previous.panes.some(pane => pane.rect)) {
-            const offset = 0.03 + (previous.panes.length % 6) * 0.05
-            next.rect = { x: offset, y: offset, w: 0.46, h: 0.5 }
+          const rows = previous.rows.map(row => row.slice())
+          const weights = previous.rowWeights.slice()
+          const last = rows.length - 1
+          if (last >= 0 && rows[last].length < 2) {
+            rows[last].push(id)
+          } else {
+            rows.push([id])
+            weights.push(1)
           }
-          return Object.assign({}, previous, { panes: previous.panes.concat([next]) })
+          return Object.assign({}, previous, {
+            panes: previous.panes.concat([{ id, sessionId: null }]),
+            rows,
+            rowWeights: weights,
+            colWeights: Object.assign({}, previous.colWeights, { [id]: 1 }),
+            maximizedId: null,
+          })
         })
         setPickingId(id)
       }, [])
@@ -996,10 +978,24 @@ window.__ModuleLoader__.load({
       const closePane = useCallback(id => {
         setLayout(previous => {
           if (!previous || previous.panes.length <= 1) return previous
-          return {
+          const rows = []
+          const weights = []
+          previous.rows.forEach((row, index) => {
+            const kept = row.filter(item => item !== id)
+            if (kept.length > 0) {
+              rows.push(kept)
+              weights.push(previous.rowWeights[index] || 1)
+            }
+          })
+          const colWeights = Object.assign({}, previous.colWeights)
+          delete colWeights[id]
+          return Object.assign({}, previous, {
             panes: previous.panes.filter(pane => pane.id !== id),
+            rows,
+            rowWeights: weights,
+            colWeights,
             maximizedId: previous.maximizedId === id ? null : previous.maximizedId,
-          }
+          })
         })
         setPickingId(current => (current === id ? null : current))
       }, [])
@@ -1024,80 +1020,76 @@ window.__ModuleLoader__.load({
       const clearPane = useCallback(id => { assignSession(id, null) }, [assignSession])
       const dismissPicker = useCallback(() => setPickingId(null), [])
 
-      const bringToFront = useCallback(id => {
-        setZMap(previous => {
-          let top = 0
-          for (const key in previous) {
-            if (previous[key] > top) top = previous[key]
-          }
-          /* Already on top: keep the same object so React skips the re-render. */
-          if (top > 0 && previous[id] === top) return previous
-          return Object.assign({}, previous, { [id]: top + 1 })
-        })
-      }, [])
-
       /**
-       * Drag or resize one pane on the free canvas. Geometry is measured against
-       * the canvas box; on release every pane is written back as fractions so the
-       * arrangement survives a window resize.
+       * Drag a divider between two tiles. The pair keeps its combined size, so
+       * growing one shrinks the other, exactly like a tmux pane border. A row
+       * divider resizes both rows (and therefore every pane in them); a column
+       * divider only resizes the two neighbours inside one row.
        */
-      const beginDrag = useCallback((event, pane, mode) => {
+      const beginSplitDrag = useCallback((event, axis, index) => {
         if (!layout || layout.maximizedId) return
+        if (dragRef.current) return
         if (event.button !== undefined && event.button !== 0) return
-        const canvas = canvasRef.current
-        if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return
-        const box = canvas.getBoundingClientRect()
+        const host = hostRef.current
+        if (!host || typeof host.getBoundingClientRect !== 'function') return
+        const box = host.getBoundingClientRect()
         if (!box || !(box.width > 0) || !(box.height > 0)) return
-        const rects = resolveRects(layout.panes, box.width, box.height)
-        const start = rects[pane.id]
-        if (!start) return
-        const drag = {
-          paneId: pane.id,
-          mode,
-          box,
-          start,
-          current: start,
-          moved: false,
-          pointerId: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          rects,
+
+        const baseRows = (draft ? draft.rowWeights : layout.rowWeights).slice()
+        const baseCols = Object.assign({}, draft ? draft.colWeights : layout.colWeights)
+        let startA = 0
+        let startB = 0
+        let pixelsPerWeight = 0
+        let minPixels = 0
+        let pairKey = null
+
+        if (axis === 'row') {
+          if (index < 0 || index + 1 >= layout.rows.length) return
+          startA = baseRows[index] || 1
+          startB = baseRows[index + 1] || 1
+          const sum = baseRows.reduce((total, weight) => total + (weight > 0 ? weight : 1), 0)
+          const available = Math.max(0, box.height - PAD * 2 - SPLITTER * Math.max(0, layout.rows.length - 1))
+          pixelsPerWeight = sum > 0 ? available / sum : 0
+          minPixels = MIN_PANE_H
+        } else {
+          const row = layout.rows[index]
+          if (!row || row.length < 2) return
+          pairKey = [row[0], row[1]]
+          startA = baseCols[pairKey[0]] || 1
+          startB = baseCols[pairKey[1]] || 1
+          const available = Math.max(0, box.width - PAD * 2 - SPLITTER)
+          pixelsPerWeight = startA + startB > 0 ? available / (startA + startB) : 0
+          minPixels = MIN_PANE_W
         }
-        dragRef.current = drag
-        bringToFront(pane.id)
+        if (!(pixelsPerWeight > 0)) return
+
+        const pair = startA + startB
+        const floor = Math.min(minPixels / pixelsPerWeight, pair / 2)
+        const startX = event.clientX
+        const startY = event.clientY
+        let moved = false
+        let nextRowWeights = baseRows
+        let nextColWeights = baseCols
+        dragRef.current = { axis, index }
 
         const onMove = moveEvent => {
-          const active = dragRef.current
-          if (!active) return
-          const dx = moveEvent.clientX - active.startX
-          const dy = moveEvent.clientY - active.startY
-          /* A couple of stray pixels should feel like a click, not a move. */
-          if (!active.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return
-          active.moved = true
-          const areaW = active.box.width
-          const areaH = active.box.height
-          let x = active.start.x
-          let y = active.start.y
-          let w = active.start.w
-          let h = active.start.h
-          if (active.mode === 'move') {
-            x = clamp(x + dx, 0, Math.max(0, areaW - w))
-            y = clamp(y + dy, 0, Math.max(0, areaH - h))
+          if (!dragRef.current) return
+          const deltaPixels = axis === 'row' ? moveEvent.clientY - startY : moveEvent.clientX - startX
+          if (!moved && Math.abs(deltaPixels) < 2) return
+          moved = true
+          const a = clamp(startA + deltaPixels / pixelsPerWeight, floor, pair - floor)
+          const b = pair - a
+          if (axis === 'row') {
+            nextRowWeights = baseRows.slice()
+            nextRowWeights[index] = a
+            nextRowWeights[index + 1] = b
+            setDraft({ rowWeights: nextRowWeights, colWeights: baseCols })
           } else {
-            if (active.mode.indexOf('e') >= 0) {
-              const maxW = Math.max(MIN_PANE_W, areaW - x)
-              w = clamp(active.start.w + dx, Math.min(MIN_PANE_W, maxW), maxW)
-            }
-            if (active.mode.indexOf('s') >= 0) {
-              const maxH = Math.max(MIN_PANE_H, areaH - y)
-              h = clamp(active.start.h + dy, Math.min(MIN_PANE_H, maxH), maxH)
-            }
+            nextColWeights = Object.assign({}, baseCols)
+            nextColWeights[pairKey[0]] = a
+            nextColWeights[pairKey[1]] = b
+            setDraft({ rowWeights: baseRows, colWeights: nextColWeights })
           }
-          const next = { x: snapPx(x), y: snapPx(y), w: snapPx(w), h: snapPx(h) }
-          next.x = clamp(next.x, 0, Math.max(0, areaW - next.w))
-          next.y = clamp(next.y, 0, Math.max(0, areaH - next.h))
-          active.current = next
-          setDraft({ paneId: active.paneId, rect: next })
           if (moveEvent.cancelable) moveEvent.preventDefault()
         }
 
@@ -1105,35 +1097,30 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pointermove', onMove)
           window.removeEventListener('pointerup', finish)
           window.removeEventListener('pointercancel', finish)
-          const active = dragRef.current
           dragRef.current = null
           setDraft(null)
-          if (!active || !active.moved) return
-          const pixels = Object.assign({}, active.rects)
-          pixels[active.paneId] = active.current
-          setLayout(previous => {
-            if (!previous) return previous
-            return Object.assign({}, previous, {
-              panes: previous.panes.map(item => Object.assign({}, item, {
-                rect: toFractions(pixels[item.id] || active.current, active.box.width, active.box.height),
-              })),
-            })
-          })
+          if (!moved) return
+          setLayout(previous => (previous
+            ? Object.assign({}, previous, { rowWeights: nextRowWeights, colWeights: nextColWeights })
+            : previous))
         }
 
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', finish)
         window.addEventListener('pointercancel', finish)
         if (event.cancelable) event.preventDefault()
-      }, [bringToFront, layout])
+      }, [draft, layout])
 
-      /** Drop every manual rect and fall back to the auto grid. */
+      /** Put every divider back to an even split. */
       const autoArrange = useCallback(() => {
         setLayout(previous => {
           if (!previous) return previous
+          const colWeights = {}
+          for (const pane of previous.panes) colWeights[pane.id] = 1
           return Object.assign({}, previous, {
             maximizedId: null,
-            panes: previous.panes.map(pane => ({ id: pane.id, sessionId: pane.sessionId })),
+            rowWeights: previous.rows.map(() => 1),
+            colWeights,
           })
         })
       }, [])
@@ -1167,58 +1154,92 @@ window.__ModuleLoader__.load({
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
         const panes = layout.panes
-        /* Narrow hosts stack panes instead of posing a canvas that cannot hold them. */
-        const narrow = width > 0 && width < NARROW_WIDTH
-        const rects = narrow ? null : resolveRects(panes, width || 1200, height || 800)
-        const containerStyle = maximizedId ? styles.maximizedHost : narrow ? styles.stack : styles.canvas
+        const byId = {}
+        for (const pane of panes) byId[pane.id] = pane
 
-        /* Resize handles sit in the gap around the pane that is currently on top,
-           so they never cover a conversation's scrollbar. */
-        let grips = null
-        if (!maximizedId && !narrow && panes.length > 0) {
-          let topId = panes[0].id
-          let topZ = -1
-          panes.forEach((pane, index) => {
-            const z = zMap[pane.id] || index
-            if (z > topZ) {
-              topZ = z
-              topId = pane.id
-            }
-          })
-          const live = draft && draft.paneId === topId ? draft.rect : rects[topId]
-          if (live) {
-            const right = live.x + live.w - PANE_GAP
-            const bottom = live.y + live.h - PANE_GAP
-            grips = [
-              h('div', {
-                key: 'grip-e',
-                style: Object.assign({}, styles.gripE, {
-                  left: right - 2,
-                  top: live.y + 6,
-                  height: Math.max(12, live.h - PANE_GAP - 12),
-                }),
-                onPointerDown: event => { event.stopPropagation(); beginDrag(event, { id: topId }, 'e') },
-              }),
-              h('div', {
-                key: 'grip-s',
-                style: Object.assign({}, styles.gripS, {
-                  left: live.x + 6,
-                  top: bottom - 2,
-                  width: Math.max(12, live.w - PANE_GAP - 12),
-                }),
-                onPointerDown: event => { event.stopPropagation(); beginDrag(event, { id: topId }, 's') },
-              }),
-              h('div', {
-                key: 'grip-se',
-                style: Object.assign({}, styles.gripSE, {
-                  left: right - 6,
-                  top: bottom - 6,
-                }),
-                onPointerDown: event => { event.stopPropagation(); beginDrag(event, { id: topId }, 'se') },
-              }),
-            ]
-          }
+        const renderPane = (pane, style) => {
+          const picking = pickingId === pane.id
+          return h('div', {
+            key: pane.id,
+            style: Object.assign({}, styles.pane, style),
+            'data-pane-id': pane.id,
+          },
+            h(PaneHeader, {
+              pane,
+              maximized: maximizedId === pane.id,
+              canClose: panes.length > 1,
+              useSessions,
+              t,
+              onPick: () => setPickingId(picking ? null : pane.id),
+              onToggleMax: () => toggleMaximize(pane.id),
+              onClose: () => closePane(pane.id),
+            }),
+            h('div', { style: styles.body },
+              h(PaneBoundary, {
+                fallback: (error, retry) => h(PaneCrash, { error, t, onRetry: retry }),
+              }, h(PaneBody, {
+                pane,
+                sessions,
+                SessionProvider,
+                renderSlot,
+                useSessions,
+                t,
+                onPick: () => setPickingId(pane.id),
+                onCreate: () => createSession(pane.id),
+                creating: creatingPane === pane.id,
+                createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
+              })),
+              picking ? h(SessionPicker, {
+                currentSessionId: pane.sessionId,
+                useSessions,
+                t,
+                onPick: sessionId => {
+                  setCreateFailure(null)
+                  assignSession(pane.id, sessionId)
+                },
+                onClear: () => {
+                  setCreateFailure(null)
+                  clearPane(pane.id)
+                },
+                onCreate: () => createSession(pane.id),
+                creating: creatingPane === pane.id,
+                error: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
+                onClose: dismissPicker,
+              }) : null))
         }
+
+        /* Tiles never overlap: rows split the height, the panes of a row split its width. */
+        const view = []
+        layout.rows.forEach((row, rowIndex) => {
+          const cells = []
+          row.forEach((id, colIndex) => {
+            const pane = byId[id]
+            if (!pane) return
+            if (colIndex > 0) {
+              cells.push(h('div', {
+                key: 'divider-v-' + id,
+                style: styles.splitterV,
+                title: t('dragHint'),
+                onPointerDown: event => beginSplitDrag(event, 'col', rowIndex),
+              }))
+            }
+            cells.push(renderPane(pane, { flexGrow: colWeights[id] || 1, flexBasis: 0, minWidth: 0 }))
+          })
+          view.push(h('div', {
+            key: 'row-' + rowIndex,
+            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[rowIndex] || 1 }),
+          }, cells))
+          if (rowIndex < layout.rows.length - 1) {
+            view.push(h('div', {
+              key: 'divider-h-' + rowIndex,
+              style: styles.splitterH,
+              title: t('dragHint'),
+              onPointerDown: event => beginSplitDrag(event, 'row', rowIndex),
+            }))
+          }
+        })
+
+        const maximizedPane = maximizedId ? byId[maximizedId] : null
 
         body = h(React.Fragment, null,
           h('div', { style: styles.toolbar },
@@ -1238,80 +1259,12 @@ window.__ModuleLoader__.load({
               title: t('addPane'),
               onClick: addPane,
             }, '+ ' + t('addPane'))),
-          h('div', { ref: canvasRef, style: containerStyle, 'data-multisession-canvas': '' },
-            panes.map((pane, index) => {
-              let paneStyle = Object.assign({}, styles.pane)
-              if (maximizedId) {
-                paneStyle = maximizedId === pane.id
-                  ? Object.assign(paneStyle, { flex: '1 1 auto' })
-                  : Object.assign(paneStyle, { display: 'none' })
-              } else if (narrow) {
-                paneStyle = Object.assign(paneStyle, { width: '100%', height: 380, flex: '0 0 auto' })
-              } else {
-                const live = draft && draft.paneId === pane.id ? draft.rect : rects[pane.id]
-                paneStyle = Object.assign(paneStyle, {
-                  position: 'absolute',
-                  left: live.x,
-                  top: live.y,
-                  /* The gap comes out of the box so neighbouring panes never touch. */
-                  width: Math.max(0, live.w - PANE_GAP),
-                  height: Math.max(0, live.h - PANE_GAP),
-                  zIndex: 1 + (zMap[pane.id] || index),
-                })
-              }
-              const picking = pickingId === pane.id
-              const movable = !maximizedId && !narrow
-              return h('div', {
-                key: pane.id,
-                style: paneStyle,
-                'data-pane-id': pane.id,
-                onPointerDown: () => bringToFront(pane.id),
-              },
-                h(PaneHeader, {
-                  pane,
-                  maximized: maximizedId === pane.id,
-                  canClose: panes.length > 1,
-                  movable,
-                  useSessions,
-                  t,
-                  onPick: () => setPickingId(picking ? null : pane.id),
-                  onToggleMax: () => toggleMaximize(pane.id),
-                  onClose: () => closePane(pane.id),
-                  onDragStart: event => beginDrag(event, pane, 'move'),
-                }),
-                h('div', { style: styles.body },
-                  h(PaneBoundary, {
-                    fallback: (error, retry) => h(PaneCrash, { error, t, onRetry: retry }),
-                  }, h(PaneBody, {
-                    pane,
-                    sessions,
-                    SessionProvider,
-                    renderSlot,
-                    useSessions,
-                    t,
-                    onPick: () => setPickingId(pane.id),
-                    onCreate: () => createSession(pane.id),
-                    creating: creatingPane === pane.id,
-                    createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
-                  })),
-                  picking ? h(SessionPicker, {
-                    currentSessionId: pane.sessionId,
-                    useSessions,
-                    t,
-                    onPick: sessionId => {
-                      setCreateFailure(null)
-                      assignSession(pane.id, sessionId)
-                    },
-                    onClear: () => {
-                      setCreateFailure(null)
-                      clearPane(pane.id)
-                    },
-                    onCreate: () => createSession(pane.id),
-                    creating: creatingPane === pane.id,
-                    error: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
-                    onClose: dismissPicker,
-                  }) : null))
-            }), grips))
+          h('div', {
+            ref: hostRef,
+            style: maximizedId ? styles.maximizedHost : styles.host,
+            'data-multisession-host': '',
+          },
+            maximizedPane ? renderPane(maximizedPane, { flex: '1 1 auto' }) : view))
       }
 
       return h('div', { ref: rootRef, style: styles.root }, body)

@@ -147,12 +147,16 @@ const paneBox = (scope, id) => {
   const element = scope.querySelector('[data-pane-id="' + id + '"]')
   return element ? element.style : null
 }
-const stubCanvas = scope => {
-  const canvas = scope.querySelector('[data-multisession-canvas]')
-  if (canvas) {
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 800, right: 1200, bottom: 800, x: 0, y: 0 })
+const rowOf = (scope, id) => {
+  const element = scope.querySelector('[data-pane-id="' + id + '"]')
+  return element ? element.parentElement : null
+}
+const stubHost = scope => {
+  const host = scope.querySelector('[data-multisession-host]')
+  if (host) {
+    host.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1200, height: 800, right: 1200, bottom: 800, x: 0, y: 0 })
   }
-  return canvas
+  return host
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 await act(async () => { root_.render(React.createElement(main.comp, mainProps)) })
@@ -205,7 +209,7 @@ const checks = [
   [bundle.id === '@local/dsh-multi-session', 'bundle id'],
   [mainHtml.includes('标题甲') && mainHtml.includes('标题乙'), 'main renders both pane titles'],
   [mainHtml.includes('data-slot="multisession.pane"'), 'each pane renders the owned session slot'],
-  [!!paneBox(container, 'p1') && paneBox(container, 'p1').left === '0px' && paneBox(container, 'p2').left === '600px' && paneBox(container, 'p1').width === '590px', 'two panes fill a wide panel instead of leaving a dead column'],
+  [rowOf(container, 'p1') === rowOf(container, 'p2') && paneBox(container, 'p1').flexGrow === '1', 'two panes share one row with equal weight'],
   [mainHtml.includes('data-provider="true"'), 'SessionProvider receives a retained reference'],
   [(mainHtml.match(/data-provider="true"/g) || []).length === 2, 'two session providers for two panes'],
   [releasesBeforeCreate === 0, 'references stay retained while mounted'],
@@ -266,8 +270,10 @@ const manyRoot = createRoot(manyContainer)
 await act(async () => { manyRoot.render(React.createElement(main.comp, mainProps)) })
 const addButton = Array.from(manyContainer.querySelectorAll('button')).find(button => button.textContent.startsWith('+ '))
 checks.push([
-  !!paneBox(manyContainer, 'm2') && paneBox(manyContainer, 'm2').left === '800px' && paneBox(manyContainer, 'm2').width === '390px',
-  'a wide panel fits six panes in three columns',
+  !!paneBox(manyContainer, 'm2') &&
+    rowOf(manyContainer, 'm0') === rowOf(manyContainer, 'm1') &&
+    rowOf(manyContainer, 'm0') !== rowOf(manyContainer, 'm2'),
+  'six panes tile as three rows of two',
 ])
 checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
 checks.push([manyContainer.textContent.includes('6 paneCount'), 'toolbar reports the pane count without a cap'])
@@ -277,52 +283,72 @@ const headersAfter = manyContainer.querySelectorAll('button[title="switchSession
 checks.push([headersBefore === 6 && headersAfter === 7, 'adding a seventh pane works'])
 await act(async () => { manyRoot.unmount() })
 
-// Free canvas: the title bar moves one pane, the corner grip resizes only that
-// pane, and auto-arrange drops every manual rectangle.
+// Tiling: dragging the divider between rows re-splits their heights, dragging the
+// divider inside a row re-splits its two panes, and even-out resets both.
 dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
-  version: 2,
+  version: 3,
   panes: [
     { id: 'd1', sessionId: 'session-a' },
     { id: 'd2', sessionId: 'session-b' },
+    { id: 'd3', sessionId: null },
   ],
+  rows: [['d1'], ['d2', 'd3']],
+  rowWeights: [1, 1],
+  colWeights: { d1: 1, d2: 1, d3: 1 },
   maximizedId: null,
 }))
 const dragContainer = document.createElement('div')
 document.body.appendChild(dragContainer)
 const dragRoot = createRoot(dragContainer)
 await act(async () => { dragRoot.render(React.createElement(main.comp, mainProps)) })
-stubCanvas(dragContainer)
+stubHost(dragContainer)
 const pointer = (type, x, y) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y })
-const header = dragContainer.querySelector('[data-pane-id="d1"] > div')
-await act(async () => { header.dispatchEvent(pointer('pointerdown', 100, 100)) })
-await act(async () => { emitWindow('pointermove', { clientX: 220, clientY: 100, cancelable: false }) })
-await act(async () => { emitWindow('pointerup', {}) })
-checks.push([paneBox(dragContainer, 'd1').left === '120px', 'dragging the title bar moves one pane'])
-checks.push([paneBox(dragContainer, 'd2').left === '600px', 'moving one pane leaves its neighbour alone'])
+const rowDivs = () => Array.from(dragContainer.querySelectorAll('[data-multisession-host] > div'))
+  .filter(element => element.style.flexDirection === 'row')
+const weight = id => Number(paneBox(dragContainer, id).flexGrow)
 
-await sleep(260)
-const dragged = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([rowDivs().length === 2, 'three panes tile as two rows'])
+checks.push([rowDivs()[0].contains(dragContainer.querySelector('[data-pane-id="d1"]')), 'the lone pane owns the first row'])
+
+const horizontal = dragContainer.querySelector('[data-multisession-host] > div[style*="row-resize"]')
+await act(async () => { horizontal.dispatchEvent(pointer('pointerdown', 600, 400)) })
+await act(async () => { emitWindow('pointermove', { clientX: 600, clientY: 500, cancelable: false }) })
+await act(async () => { emitWindow('pointerup', {}) })
+const firstRowWeight = Number(rowDivs()[0].style.flexGrow)
+const secondRowWeight = Number(rowDivs()[1].style.flexGrow)
 checks.push([
-  dragged.version === 2 && !!dragged.panes[0].rect && Math.abs(dragged.panes[0].rect.x - 0.1) < 0.01,
-  'the dragged rectangle is persisted as a fraction',
+  firstRowWeight > secondRowWeight && Math.abs(firstRowWeight + secondRowWeight - 2) < 0.01,
+  'dragging the row divider trades height between the two rows',
 ])
 
-const grip = dragContainer.querySelector('[data-multisession-canvas] div[style*="nwse-resize"]')
-await act(async () => { grip.dispatchEvent(pointer('pointerdown', 600, 700)) })
-await act(async () => { emitWindow('pointermove', { clientX: 700, clientY: 700, cancelable: false }) })
+const vertical = dragContainer.querySelector('[data-multisession-host] div[style*="col-resize"]')
+await act(async () => { vertical.dispatchEvent(pointer('pointerdown', 800, 600)) })
+await act(async () => { emitWindow('pointermove', { clientX: 700, clientY: 600, cancelable: false }) })
 await act(async () => { emitWindow('pointerup', {}) })
-checks.push([paneBox(dragContainer, 'd1').width === '694px', 'dragging the corner grip resizes only that pane'])
-checks.push([paneBox(dragContainer, 'd2').width === '590px', 'resizing one pane leaves its neighbour alone'])
+checks.push([
+  weight('d2') < weight('d3') && Math.abs(weight('d2') + weight('d3') - 2) < 0.01,
+  'dragging the column divider trades width inside one row',
+])
+
+await sleep(260)
+const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  tiled.version === 3 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
+  'the split weights are persisted',
+])
 
 const autoButton = Array.from(dragContainer.querySelectorAll('button')).find(button => button.getAttribute('title') === 'autoArrange')
 await act(async () => { autoButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
 checks.push([
-  paneBox(dragContainer, 'd1').left === '0px' && paneBox(dragContainer, 'd1').width === '590px',
-  'auto arrange restores the tidy grid',
+  Number(rowDivs()[0].style.flexGrow) === 1 && weight('d2') === 1 && weight('d3') === 1,
+  'even out restores an even split',
 ])
 await sleep(260)
-const arranged = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
-checks.push([arranged.panes.every(item => !item.rect), 'auto arrange clears the stored geometry'])
+const evened = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  evened.rowWeights.every(item => item === 1) && Object.values(evened.colWeights).every(item => item === 1),
+  'even out clears the stored weights',
+])
 await act(async () => { dragRoot.unmount() })
 
 let failed = false
