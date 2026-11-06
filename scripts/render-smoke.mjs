@@ -219,6 +219,25 @@ checks.push([
 ])
 await act(async () => { emptyRoot.unmount() })
 
+// No hard cap: six panes render, and the toolbar keeps adding more.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 1,
+  panes: Array.from({ length: 6 }, (_, index) => ({ id: 'm' + index, sessionId: null })),
+  maximizedId: null,
+}))
+const manyContainer = document.createElement('div')
+document.body.appendChild(manyContainer)
+const manyRoot = createRoot(manyContainer)
+await act(async () => { manyRoot.render(React.createElement(main.comp, mainProps)) })
+const addButton = Array.from(manyContainer.querySelectorAll('button')).find(button => button.textContent.startsWith('+ '))
+checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
+checks.push([manyContainer.textContent.includes('6 paneCount'), 'toolbar reports the pane count without a cap'])
+const headersBefore = manyContainer.querySelectorAll('button[title="switchSession"]').length
+await act(async () => { addButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+const headersAfter = manyContainer.querySelectorAll('button[title="switchSession"]').length
+checks.push([headersBefore === 6 && headersAfter === 7, 'adding a seventh pane works'])
+await act(async () => { manyRoot.unmount() })
+
 let failed = false
 for (const [ok, label] of checks) {
   console.log((ok ? 'ok  -' : 'FAIL:') + ' ' + label)

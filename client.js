@@ -12,9 +12,11 @@ window.__ModuleLoader__.load({
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
     const PANE_SLOT = 'multisession.pane'
     const STORAGE_KEY = 'dsh.multi-session.v1'
-    const MAX_PANES = 4
+    /** Guard against a corrupted stored layout; the UI itself has no cap. */
+    const STORED_PANE_LIMIT = 32
+    /** Narrowest column that still fits a conversation; drives the column count. */
+    const MIN_PANE_WIDTH = 380
     const REF_SOURCE = 'multisessionPane'
-    const NARROW_WIDTH = 760
 
     const ZH = {
       panelLabel: '多会话',
@@ -45,7 +47,6 @@ window.__ModuleLoader__.load({
       loading: '加载中…',
       noSession: '未选择会话',
       paneCount: '格',
-      addHint: '已到上限（4 格）',
     }
 
     const EN = {
@@ -77,7 +78,6 @@ window.__ModuleLoader__.load({
       loading: 'Loading…',
       noSession: 'No session',
       paneCount: 'panes',
-      addHint: 'Limit reached (4 panes)',
     }
 
     const styles = {
@@ -108,17 +108,16 @@ window.__ModuleLoader__.load({
         display: 'grid',
         gap: 12,
         padding: 12,
-        overflow: 'hidden',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        alignContent: 'start',
       },
-      stack: {
+      maximizedHost: {
         flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
         padding: 12,
-        overflowY: 'auto',
-        overflowX: 'hidden',
+        overflow: 'hidden',
       },
       pane: {
         position: 'relative',
@@ -380,7 +379,7 @@ window.__ModuleLoader__.load({
       if (value.version !== 1 || !Array.isArray(value.panes)) return null
       const panes = []
       const seen = new Set()
-      for (const raw of value.panes.slice(0, MAX_PANES)) {
+      for (const raw of value.panes.slice(0, STORED_PANE_LIMIT)) {
         if (!raw || typeof raw.id !== 'string' || raw.id === '' || seen.has(raw.id)) continue
         seen.add(raw.id)
         panes.push({
@@ -801,7 +800,7 @@ window.__ModuleLoader__.load({
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
-      const [narrow, setNarrow] = useState(false)
+      const [width, setWidth] = useState(0)
       const rootRef = useRef(null)
       const phase = useSessions(state => state.phase)
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
@@ -831,7 +830,7 @@ window.__ModuleLoader__.load({
         const element = rootRef.current
         if (!element || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(entries => {
-          for (const entry of entries) setNarrow(entry.contentRect.width < NARROW_WIDTH)
+          for (const entry of entries) setWidth(entry.contentRect.width)
         })
         observer.observe(element)
         return () => observer.disconnect()
@@ -850,7 +849,7 @@ window.__ModuleLoader__.load({
       const addPane = useCallback(() => {
         const id = nextPaneId()
         setLayout(previous => {
-          if (!previous || previous.panes.length >= MAX_PANES) return previous
+          if (!previous) return previous
           return Object.assign({}, previous, { panes: previous.panes.concat([{ id, sessionId: null }]) })
         })
         setPickingId(id)
@@ -916,24 +915,23 @@ window.__ModuleLoader__.load({
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
         const panes = layout.panes
-        const singleColumn = narrow || panes.length === 1
-        const containerStyle = narrow
-          ? styles.stack
+        const columns = width > 0 ? Math.max(1, Math.min(3, Math.floor(width / MIN_PANE_WIDTH))) : 2
+        const containerStyle = maximizedId
+          ? styles.maximizedHost
           : Object.assign({}, styles.grid, {
-            gridTemplateColumns: 'repeat(' + (singleColumn ? 1 : 2) + ', minmax(0, 1fr))',
-            gridAutoRows: 'minmax(0, 1fr)',
+            gridTemplateColumns: 'repeat(' + columns + ', minmax(0, 1fr))',
+            gridAutoRows: 'minmax(360px, 1fr)',
           })
 
         body = h(React.Fragment, null,
           h('div', { style: styles.toolbar },
             h('span', { style: styles.toolbarTitle }, t('panelLabel')),
-            h('span', { style: styles.toolbarMeta }, panes.length + ' / ' + MAX_PANES),
+            h('span', { style: styles.toolbarMeta }, panes.length + ' ' + t('paneCount')),
             h('span', { style: styles.spacer }),
             h('button', {
               type: 'button',
-              style: Object.assign({}, styles.ghostButton, panes.length >= MAX_PANES ? styles.disabled : null),
-              disabled: panes.length >= MAX_PANES,
-              title: panes.length >= MAX_PANES ? t('addHint') : t('addPane'),
+              style: styles.ghostButton,
+              title: t('addPane'),
               onClick: addPane,
             }, '+ ' + t('addPane'))),
           h('div', { style: containerStyle },
@@ -941,14 +939,14 @@ window.__ModuleLoader__.load({
               let paneStyle = Object.assign({}, styles.pane)
               if (maximizedId) {
                 if (maximizedId === pane.id) {
-                  paneStyle = Object.assign(paneStyle, { gridColumn: '1 / -1', gridRow: '1 / -1', flex: '1 1 auto' })
+                  paneStyle = Object.assign(paneStyle, { flex: '1 1 auto' })
                 } else {
                   paneStyle = Object.assign(paneStyle, { display: 'none' })
                 }
-              } else if (!narrow && panes.length === 3 && index === 2) {
+              } else if (columns > 1 && panes.length % columns === 1 && index === panes.length - 1) {
+                /* A lone last row reads better than a half-empty cell. */
                 paneStyle = Object.assign(paneStyle, { gridColumn: '1 / -1' })
               }
-              if (narrow) paneStyle = Object.assign(paneStyle, { height: 380, flex: '0 0 auto' })
               const picking = pickingId === pane.id
               return h('div', { key: pane.id, style: paneStyle },
                 h(PaneHeader, {
