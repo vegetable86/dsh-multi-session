@@ -1,9 +1,20 @@
-{
+﻿{
   "name": "@local/dsh-multi-session",
   "version": "0.3.1",
-  "private": true,
+  
   "description": "Multi-session split view panel for DeepSeek Harness",
   "type": "module",
+  "keywords": [
+    "dsh",
+    "dsh-bundle",
+    "dsh-plugin",
+    "deepseek-harness",
+    "multi-session",
+    "split-view"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
