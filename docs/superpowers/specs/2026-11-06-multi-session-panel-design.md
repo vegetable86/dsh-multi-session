@@ -1,0 +1,150 @@
+# DSH 多会话面板设计（@local/dsh-multi-session）
+
+日期：2026-11-06
+状态：待用户评审
+目标平台：DeepSeek Harness 桌面版 Web GUI（客户端插件）
+
+## 1. 目标
+
+在主面板（`main` 槽位）新增一个「多会话」工作台：同一页面内并排显示 1–4 个**独立会话的完整对话**，每个格子都能查看历史、输入并发送消息，互不干扰；布局、每格绑定的会话、最大化状态持久化，刷新/重启后恢复。
+
+核心能力复用 Harness 官方的 `conversation.content` 工厂槽位（ui-subagent 的右侧栏子会话聊天用的就是它），因此每个格子拿到的是**原生对话内容 + 原生输入框**，不是自绘的简化聊天界面。
+
+## 2. 非目标（首版）
+
+- 不改造默认对话页（`conversation` 面板保持原样）。
+- 不在格子内新建会话或 fork 会话（新建仍走左侧栏）。
+- 不做拖拽调整格子尺寸。
+- 不做多会话联动（同步滚动、广播输入、统一发送）。
+- 不在格子内显示子代理会话（选择器默认过滤掉）。
+
+## 3. 入口与整体形态
+
+- 侧边栏面板图标：`sidebar.panellist`，`id = 'multisession'`，`order = 30`，图标为自绘 SVG（分屏图形），`label` 走 i18n（"多会话" / "Multi-session"）。
+- 主面板：`main` 槽位，`key = 'multisession'`。点击图标 → `layout.selectPanel('multisession')`（由侧边栏自动完成）。
+- 后续可选的"分屏"快捷按钮（会话标题栏 `conversation.session.header.utilities` 里放一个按钮，把当前会话塞进多会话面板）**不在首版**，等主体稳定后再评估。
+
+## 4. 组件结构
+
+```
+MultiSessionPage                // main 槽位条目，root scope
+├─ Toolbar                      // 标题、格数、[＋ 添加会话格]
+└─ Grid
+   └─ Pane × N                  // 每格一个 React 子树
+      ├─ PaneHeader             // 独立组件：标题、运行状态、[选择会话][最大化][关闭]
+      ├─ PaneBody
+      │  ├─ SessionProvider session={ref}      // 显式绑定该格会话
+      │  │  └─ renderSlot('multisession.pane') // session scope，拿到该会话的标准 props
+      │  │     └─ renderFactorySlot('conversation.content', { variant:'embedded', phase, hero },
+      │  │                           { slots: { views: FixedChatConversationView } })
+      │  └─ EmptyState / UnavailableState / ErrorState
+      └─ SessionPicker（弹出层，按需挂载）
+```
+
+要点：
+
+- 页面条目在 `main` 注册时声明子槽 `children: { 'multisession.pane': { kind: 'single', scope: 'session' } }`。
+  声明带来两个结果：**该条目拿到注入的 `SessionProvider`**；`multisession.pane` 成为可注册的槽位（"declaring is claiming"）。
+- `multisession.pane` 用 `ctx.slots.inject('multisession.pane', () => ctx.slots.register({ name: 'multisession.pane', locale: NS }, ConversationPane))` 注册，
+  等主面板条目声明后再落地，避免"未声明槽位"报错。
+- `ConversationPane`（session scope）拿到 `sessionId / useSession / useConversation / useSessions / renderFactorySlot`，
+  phase 计算与 `ui-subagent` 的 `ConversationSlotPanel` 完全一致（settling / hero / active），保证与官方嵌入行为一致。
+- 每格是独立的 `SessionProvider`，因此**同一 React 树里并存多个会话绑定**；这是官方支持的用法（右侧栏子会话聊天同源）。
+- 每格包一层 React ErrorBoundary，单格崩溃只影响自己（槽位条目整块崩溃会打空整个面板，必须隔离）。
+
+## 5. 会话绑定与生命周期
+
+- `PaneBody` 在 `useEffect` 里 `ctx.sessions.retain(sessionId, { source: 'multisessionPane' })`，cleanup 时 `reference.release()`；依赖 `[sessionId]`，改绑即换引用。
+- `retain` 抛异常（会话 id 失效等）→ 该格进入 `UnavailableState`（提示 + 重新选择按钮），不抛出。
+- 传入 `<SessionProvider session={reference} empty={...}>`：binding 尚未打开时渲染占位（加载中），打开后自动重渲染为对话内容。
+- 页面卸载 → 所有格子 cleanup → 引用全部释放，不泄漏、不影响别处的会话。
+- 不主动 `create`/`fork`/关闭会话，只持有引用，遵循"只绑定已有会话"。
+
+## 6. 会话选择器
+
+- 数据源：`useSessions`（`SessionListState`：`ids` + `byId`）。
+- 过滤：`blank === true` 跳过；`origin === 'subagent'` 跳过（首版默认隐藏子代理会话）；其余按 `updatedAt` 降序。
+- 搜索：对 `displayTitle` 与 `id` 做大小写不敏感子串匹配；输入即筛。
+- 每行：标题（缺失回退 id 前 8 位）、运行中小圆点、相对更新时间；当前格已绑定的行高亮。
+- 操作：点击行 → 绑定并关闭；「清空该格」→ 解绑（格子变空态）；「×」/Esc/点外部 → 关闭。
+- 首次打开面板（无持久化状态）：按 `updatedAt` 取最近 2 个可用会话填格；不足 2 个则按实际数量；0 个则一格空态。
+
+## 7. 布局规则
+
+- 格数 1：单列全宽。
+- 格数 2：两列一行。
+- 格数 3：两列两行，第三格跨两列（视觉平衡，不留半格空洞）。
+- 格数 4：两列两行。
+- 网格：`display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: minmax(0,1fr); gap:12px; padding:12px; height:100%; overflow:hidden`。
+- 最大化：目标格 `grid-column: 1 / -1; grid-row: 1 / -1`，其余格 `display:none`（保持挂载，流不中断）；再次点击还原；Esc 退出最大化。
+- 关闭：格数 > 1 时可关闭；只剩 1 格时关闭按钮禁用（避免空面板）。
+- 添加：格数 < 4 时可用；新格为空并自动打开选择器。
+- 窄窗口（< 760px）：退化为单列 + 纵向滚动，避免每格被压到不可用。
+
+## 8. 持久化
+
+- `localStorage`，键 `dsh.multi-session.v1`，值：
+  ```json
+  { "version": 1, "panes": [{ "id": "p1", "sessionId": "..." }], "maximizedId": "p1" }
+  ```
+- 变更后 200ms 防抖写入；读取失败/结构非法 → 回到默认布局，不阻塞渲染。
+- 恢复时：`sessionId` 已不存在 → 该格显示 "会话不可用"，仍可直接改绑；不自动删除该格记录（可能是临时不可达）。
+- `localStorage` 不可用（隐私模式等）：退化为内存态，仅本次会话有效。
+
+## 9. 工程形态
+
+- 包名 `@local/dsh-multi-session`，纯客户端插件，**无构建步骤**（手写 `client.js`，与官方 decoration 模板同构）。
+- 文件：
+  ```
+  package.json          // type:module, main:index.js, dsh.bundle.patch, dsh.client{platform:'web',immediately:true,inject:[...]}
+  index.js              // Host 侧空实现：export function apply() {}
+  client.js             // window.__ModuleLoader__.load({ id: '@local/dsh-multi-session', factory(require){...} })
+  cordis.patch.yml      // - insert: [{ id: dsh-multi-session, name: '@local/dsh-multi-session' }]
+  icon.svg
+  locale/zh.json
+  locale/en.json
+  README.md
+  ```
+- `client.js` 只 `require('react')`；不 require 任何 Harness Client 包（官方硬规则）；样式用内联 style + `--dsw-alias-*` token；
+  副作用（locale 注册、槽位注册）全部在 `apply(ctx)` 内通过 `ctx.effect` / `ctx.slots.inject` 完成。
+- 客户端 `inject: ['slots', 'locale', 'sessions']`；`package.json` 的 `dsh.client.inject` 用于激活排序：
+  `@deepseek-ai/dsh-client-ui-conversation`、`@deepseek-ai/dsh-client-ui-session`、`@deepseek-ai/dsh-client-ui-layout`、`@deepseek-ai/dsh-client-ui-sidebar`、`@deepseek-ai/dsh-client-locale`。
+- 文案走 `ctx.locale.register(NS, { zh, en })` + `ctx.locale.bind(NS)`，可见文本零硬编码中文。
+- 安装：`plugin_manager action=install_bundle target=D:\plugins\muti-sessions`，由插件管理器写入 profile。
+
+## 10. 错误处理与降级
+
+| 场景 | 行为 |
+| --- | --- |
+| 单格渲染抛异常 | ErrorBoundary 捕获，显示该格错误卡片 + "重试"（重置 boundary），其他格不受影响 |
+| `retain` 失败 / 会话不存在 | 该格显示"会话不可用"，提供重新选择入口 |
+| binding 未就绪 | 该格显示加载占位 |
+| 空格 | 显示"选择一个会话"大按钮，点击开选择器 |
+| localStorage 异常 | 内存态运行，控制台告警一次 |
+| 面板组件整体崩溃 | 只打空本面板条目；默认对话页与侧边栏不受影响 |
+
+## 11. 验收标准
+
+1. 侧边栏出现「多会话」图标；点击进入多会话面板；默认对话页行为完全不变。
+2. 首次进入自动填充最近 2 个会话；可增删 1–4 格；3/4 格按两列排布。
+3. 每格独立显示对应会话的历史消息与输入框；在某格发送消息只影响该会话；切到别的面板再切回来，内容与绑定都在。
+4. 选择器支持搜索（标题/id），默认不列子代理会话与空白会话；切换后表格立即显示新会话。
+5. 最大化/还原生效；关闭减少格数；仅剩 1 格时关闭禁用。
+6. 刷新页面后布局、每格绑定、最大化状态恢复；会话被删除的格子显示"不可用"并可改绑。
+7. 任一格内异常不影响其他格与整个应用。
+8. 中文/英文界面文案随平台语言切换。
+
+## 12. 风险与缓解
+
+- **内部扩展点稳定性**：`conversation.content` 是 ui-conversation 的工厂槽位而非公开文档 API，DSH 升级可能改签名。缓解：只使用官方同款参数（`variant/phase/hero` + `views` 本地槽），不触碰其它字段；升级后按源码同步。
+- **资源占用**：最多 4 个完整对话同时挂载，含流式渲染。缓解：硬上限 4；隐藏（非最大化）的格子保持挂载但不额外订阅；不做预加载。
+- **高度布局**：工厂输出的根节点依赖外层 flex 链提供确定高度，可能出现滚动条错位。缓解：每层 `flex:1; min-height:0; display:flex; flex-direction:column`，上线后目测微调。
+- **`retain` 语义**：不同 source 的引用计数是否互相影响未知；缓解：卸载即 release，异常吞掉并降级。
+
+## 13. 实施阶段
+
+1. **P1 骨架**：包结构 + `main` 面板 + 侧边栏图标 + 单格嵌入官方对话内容（验证可行性）。
+2. **P2 多格**：1–4 格网格、增删、最大化、关闭。
+3. **P3 绑定**：选择器（搜索/过滤/状态）、首次自动填充、`retain` 生命周期。
+4. **P4 持久化 + 健壮性**：localStorage、失效会话、错误边界、空态、i18n。
+5. **P5 安装与验收**：`install_bundle` 安装到 profile，用户在 127.0.0.1:61375 实测，按反馈微调。
