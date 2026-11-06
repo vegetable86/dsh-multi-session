@@ -26,6 +26,12 @@ const layout = {
 dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify(layout))
 
 let bundle
+/* Report a wide panel so the column logic runs for real. */
+class FakeResizeObserver {
+  constructor(callback) { this.callback = callback }
+  observe() { this.callback([{ contentRect: { width: 1400 } }]) }
+  disconnect() {}
+}
 const sandbox = {
   window: {
     __ModuleLoader__: { load: b => { bundle = b } },
@@ -33,6 +39,7 @@ const sandbox = {
     addEventListener() {},
     removeEventListener() {},
   },
+  ResizeObserver: FakeResizeObserver,
   console,
   setTimeout,
   clearTimeout,
@@ -125,6 +132,7 @@ const mainProps = {
 await act(async () => { root_.render(React.createElement(main.comp, mainProps)) })
 
 const mainHtml = container.innerHTML
+const mainGrid = container.querySelector('[style*="grid-template-columns"]')
 const releasesBeforeCreate = releases.length
 
 // Open the first pane's picker and create a session from it.
@@ -171,6 +179,7 @@ const checks = [
   [bundle.id === '@local/dsh-multi-session', 'bundle id'],
   [mainHtml.includes('标题甲') && mainHtml.includes('标题乙'), 'main renders both pane titles'],
   [mainHtml.includes('data-slot="multisession.pane"'), 'each pane renders the owned session slot'],
+  [!!mainGrid && mainGrid.getAttribute('style').includes('repeat(2'), 'two panes fill a wide panel instead of leaving a dead column'],
   [mainHtml.includes('data-provider="true"'), 'SessionProvider receives a retained reference'],
   [(mainHtml.match(/data-provider="true"/g) || []).length === 2, 'two session providers for two panes'],
   [releasesBeforeCreate === 0, 'references stay retained while mounted'],
@@ -230,6 +239,8 @@ document.body.appendChild(manyContainer)
 const manyRoot = createRoot(manyContainer)
 await act(async () => { manyRoot.render(React.createElement(main.comp, mainProps)) })
 const addButton = Array.from(manyContainer.querySelectorAll('button')).find(button => button.textContent.startsWith('+ '))
+const manyGrid = manyContainer.querySelector('[style*="grid-template-columns"]')
+checks.push([!!manyGrid && manyGrid.getAttribute('style').includes('repeat(3'), 'a wide panel fits six panes in three columns'])
 checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
 checks.push([manyContainer.textContent.includes('6 paneCount'), 'toolbar reports the pane count without a cap'])
 const headersBefore = manyContainer.querySelectorAll('button[title="switchSession"]').length

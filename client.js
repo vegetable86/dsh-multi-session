@@ -915,7 +915,10 @@ window.__ModuleLoader__.load({
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
         const panes = layout.panes
-        const columns = width > 0 ? Math.max(1, Math.min(3, Math.floor(width / MIN_PANE_WIDTH))) : 2
+        /* Columns follow the window, but never outnumber the panes: two panes in a
+           three-column-wide window should fill the width, not leave a dead cell. */
+        const room = width > 0 ? Math.max(1, Math.min(3, Math.floor(width / MIN_PANE_WIDTH))) : 2
+        const columns = Math.max(1, Math.min(room, panes.length))
         const containerStyle = maximizedId
           ? styles.maximizedHost
           : Object.assign({}, styles.grid, {
