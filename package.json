@@ -1,7 +1,6 @@
-﻿{
+{
   "name": "@local/dsh-multi-session",
   "version": "0.3.1",
-  
   "description": "Multi-session split view panel for DeepSeek Harness",
   "type": "module",
   "keywords": [
@@ -48,7 +47,8 @@
     }
   },
   "scripts": {
-    "test": "node scripts/smoke.mjs && node scripts/render-smoke.mjs"
+    "test": "node scripts/smoke.mjs && node scripts/render-smoke.mjs",
+    "release": "node scripts/pack-release.mjs"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",
