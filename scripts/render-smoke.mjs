@@ -67,6 +67,15 @@ const session = {
 }
 const conversation = { activeTargets: new Set() }
 const releases = []
+const created = []
+let failing = false
+const workspaces = {
+  phase: 'ready',
+  items: [
+    { workspaceId: 'ws-1', path: 'C:/alpha', sessionIds: ['session-a'] },
+    { workspaceId: 'ws-2', path: 'C:/beta', sessionIds: ['session-b'] },
+  ],
+}
 
 const ctx = {
   effect: fn => fn() || (() => {}),
@@ -80,6 +89,10 @@ const ctx = {
     retain: (id, options) => {
       const ref = { sessionId: id, options, release() { releases.push(id) } }
       return ref
+    },
+    create: options => {
+      created.push(options)
+      return failing ? Promise.reject(new Error('boom')) : Promise.resolve('fresh-session-1234')
     },
   },
 }
@@ -96,19 +109,37 @@ const useSessions = selector => selector(state)
 
 const container = document.getElementById('root')
 const root_ = createRoot(container)
-await act(async () => {
-  root_.render(React.createElement(main.comp, {
-    t: key => key,
-    sessions: ctx.sessions,
-    useSessions,
-    SessionProvider: props => React.createElement('div', { 'data-provider': String(!!props.session) }, props.children),
-    renderSlot: name => React.createElement('div', { 'data-slot': name }, 'session slot'),
-    renderFactorySlot: () => React.createElement('div', null, 'factory'),
-    usePanelInfo: () => ({ id: 'multisession' }),
-  }))
-})
+const mainProps = {
+  t: key => key,
+  sessions: ctx.sessions,
+  useSessions,
+  useWorkspaces: selector => selector(workspaces),
+  SessionProvider: props => React.createElement('div', {
+    'data-provider': String(!!props.session),
+    'data-session': props.session ? props.session.sessionId : '',
+  }, props.children),
+  renderSlot: name => React.createElement('div', { 'data-slot': name }, 'session slot'),
+  renderFactorySlot: () => React.createElement('div', null, 'factory'),
+  usePanelInfo: () => ({ id: 'multisession' }),
+}
+await act(async () => { root_.render(React.createElement(main.comp, mainProps)) })
 
 const mainHtml = container.innerHTML
+const releasesBeforeCreate = releases.length
+
+// Open the first pane's picker and create a session from it.
+const openButton = container.querySelector('button[title="switchSession"]')
+await act(async () => { openButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+const dialog = container.querySelector('[role="dialog"]')
+const createButton = dialog
+  ? Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === 'newSession')
+  : null
+await act(async () => {
+  createButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await Promise.resolve()
+  await Promise.resolve()
+})
+const createdHtml = container.innerHTML
 
 const paneContainer = document.createElement('div')
 const paneRoot = createRoot(paneContainer)
@@ -142,16 +173,51 @@ const checks = [
   [mainHtml.includes('data-slot="multisession.pane"'), 'each pane renders the owned session slot'],
   [mainHtml.includes('data-provider="true"'), 'SessionProvider receives a retained reference'],
   [(mainHtml.match(/data-provider="true"/g) || []).length === 2, 'two session providers for two panes'],
-  [releases.length === 0, 'references stay retained while mounted'],
+  [releasesBeforeCreate === 0, 'references stay retained while mounted'],
   [paneHtml.includes('data-factory="conversation.content"'), 'pane renders conversation.content factory'],
   [paneHtml.includes('data-variant="embedded"'), 'factory variant is embedded'],
   [paneHtml.includes('data-phase="active"'), 'phase is active for a running session'],
   [paneHtml.includes('data-view="function"'), 'views slot override is a component'],
   [iconHtml.includes('<svg'), 'sidebar icon renders svg'],
+  [created.length === 1 && created[0] && created[0].workspaceId === 'ws-1', 'new session inherits the pane workspace'],
+  [createdHtml.includes('data-session="fresh-session-1234"'), 'pane binds the created session'],
+  [createdHtml.includes('fresh-se'), 'header shows the created session'],
+  [container.querySelector('[role="dialog"]') === null, 'picker closes after creating'],
 ]
 
 await act(async () => { root_.unmount() })
-checks.push([releases.length === 2 && releases.includes('session-a') && releases.includes('session-b'), 'unmount releases both references'])
+checks.push([
+  releases.includes('session-a') && releases.includes('session-b') && releases.includes('fresh-session-1234'),
+  'unmount releases every reference',
+])
+
+// Failure path: an empty pane offers create, and a rejected create keeps it empty.
+failing = true
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 1,
+  panes: [{ id: 'p9', sessionId: null }],
+  maximizedId: null,
+}))
+const emptyContainer = document.createElement('div')
+document.body.appendChild(emptyContainer)
+const emptyRoot = createRoot(emptyContainer)
+await act(async () => { emptyRoot.render(React.createElement(main.comp, mainProps)) })
+const emptyCreate = Array.from(emptyContainer.querySelectorAll('button')).find(button => button.textContent === 'newSession')
+await act(async () => {
+  emptyCreate.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await Promise.resolve()
+  await Promise.resolve()
+})
+const failureHtml = emptyContainer.innerHTML
+checks.push([
+  failureHtml.includes('createFailed') && failureHtml.includes('boom'),
+  'failed create reports the error',
+])
+checks.push([
+  Array.from(emptyContainer.querySelectorAll('button')).some(button => button.textContent === 'newSession'),
+  'failed create leaves the pane usable',
+])
+await act(async () => { emptyRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {

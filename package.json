@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-multi-session",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Multi-session split view panel for DeepSeek Harness",
   "type": "module",
@@ -31,7 +31,8 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-session",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   },

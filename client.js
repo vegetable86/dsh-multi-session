@@ -22,11 +22,14 @@ window.__ModuleLoader__.load({
       pickTitle: '选择会话',
       pickSearch: '搜索标题或 ID',
       pickEmpty: '没有匹配的会话',
-      pickEmptyHint: '可以先去左侧栏新建一个会话',
+      pickEmptyHint: '换个关键词，或直接新建一个会话',
       pickClear: '清空该格',
       pickClose: '关闭',
+      newSession: '新建会话',
+      creating: '正在新建…',
+      createFailed: '新建失败',
       emptyTitle: '这一格还没有会话',
-      emptyHint: '选择一个已有会话，和它并排查看',
+      emptyHint: '新建一个会话，或选择一个已有会话并排查看',
       emptyAction: '选择会话',
       switchSession: '切换会话',
       maximize: '最大化',
@@ -51,11 +54,14 @@ window.__ModuleLoader__.load({
       pickTitle: 'Choose a session',
       pickSearch: 'Search title or ID',
       pickEmpty: 'No matching sessions',
-      pickEmptyHint: 'Create one from the sidebar first',
+      pickEmptyHint: 'Try another keyword, or create a new session',
       pickClear: 'Clear pane',
       pickClose: 'Close',
+      newSession: 'New session',
+      creating: 'Creating…',
+      createFailed: 'Could not create session',
       emptyTitle: 'No session in this pane',
-      emptyHint: 'Pick an existing session to view it side by side',
+      emptyHint: 'Create a new session, or pick an existing one to view side by side',
       emptyAction: 'Choose session',
       switchSession: 'Switch session',
       maximize: 'Maximize',
@@ -214,6 +220,20 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-secondary)',
         fontSize: 12,
         cursor: 'pointer',
+      },
+      emptyActions: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 4,
+      },
+      errorLine: {
+        maxWidth: 300,
+        padding: '2px 4px',
+        fontSize: 11.5,
+        lineHeight: 1.5,
+        color: 'var(--dsw-alias-label-error)',
       },
       picker: {
         position: 'absolute',
@@ -415,6 +435,30 @@ window.__ModuleLoader__.load({
       return recent.map(row => ({ id: nextPaneId(), sessionId: row.id }))
     }
 
+    /**
+     * Pick the location for a session created inside a pane: the workspace that
+     * already hosts the pane's session, else the workspace of the most recent
+     * session, else an explicit cwd, else the Host default. Never both keys:
+     * `session.create` accepts workspaceId or cwd, not both.
+     */
+    function createTarget(pane, workspaces, snapshot) {
+      const items = workspaces && Array.isArray(workspaces.items) ? workspaces.items : []
+      const recent = pickableSessions(snapshot)[0]
+      const anchors = []
+      if (pane && pane.sessionId) anchors.push(pane.sessionId)
+      if (recent && recent.id !== (pane ? pane.sessionId : null)) anchors.push(recent.id)
+      for (const id of anchors) {
+        const host = items.find(item => Array.isArray(item.sessionIds) && item.sessionIds.includes(id))
+        if (host) return { workspaceId: host.workspaceId }
+      }
+      const bound = pane && pane.sessionId && snapshot && snapshot.byId
+        ? snapshot.byId[pane.sessionId]
+        : undefined
+      if (bound && bound.cwd) return { cwd: bound.cwd }
+      if (recent && recent.cwd) return { cwd: recent.cwd }
+      return undefined
+    }
+
     function formatTime(value) {
       const date = new Date(value || 0)
       if (Number.isNaN(date.getTime())) return ''
@@ -450,12 +494,20 @@ window.__ModuleLoader__.load({
       }, children)
     }
 
-    function EmptyState({ t, onPick }) {
+    function EmptyState({ t, onPick, onCreate, creating, error }) {
       return h('div', { style: styles.center },
         h('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, h(IconSplit, { size: 26 })),
         h('div', { style: styles.emptyTitle }, t('emptyTitle')),
         h('div', { style: styles.emptyHint }, t('emptyHint')),
-        h('button', { type: 'button', style: styles.primaryButton, onClick: onPick }, t('emptyAction')))
+        h('div', { style: styles.emptyActions },
+          h('button', {
+            type: 'button',
+            style: Object.assign({}, styles.primaryButton, { marginTop: 0 }),
+            disabled: !!creating,
+            onClick: onCreate,
+          }, creating ? t('creating') : t('newSession')),
+          h('button', { type: 'button', style: styles.ghostButton, onClick: onPick }, t('emptyAction'))),
+        error ? h('div', { style: styles.errorLine }, t('createFailed') + '：' + error) : null)
     }
 
     function UnavailableState({ t, onPick, detail }) {
@@ -502,17 +554,21 @@ window.__ModuleLoader__.load({
         h('span', { style: styles.rowTime }, formatTime(row.updatedAt)))
     }
 
-    function SessionPicker({ currentSessionId, useSessions, t, onPick, onClear, onClose }) {
+    function SessionPicker({ currentSessionId, useSessions, t, onPick, onClear, onCreate, creating, error, onClose }) {
       const list = useSessions(state => state)
       const [query, setQuery] = useState('')
       const rows = useMemo(() => {
         const all = pickableSessions(list)
+        const current = currentSessionId && list && list.byId ? list.byId[currentSessionId] : undefined
+        const merged = current && current.blank && !all.some(row => row.id === current.id)
+          ? [current].concat(all)
+          : all
         const needle = query.trim().toLowerCase()
-        if (needle === '') return all
-        return all.filter(row =>
+        if (needle === '') return merged
+        return merged.filter(row =>
           String(row.displayTitle || '').toLowerCase().includes(needle)
           || String(row.id).toLowerCase().includes(needle))
-      }, [list, query])
+      }, [list, query, currentSessionId])
 
       return h(React.Fragment, null,
         h('div', { style: styles.backdrop, onClick: onClose }),
@@ -544,14 +600,22 @@ window.__ModuleLoader__.load({
                 t,
                 onPick,
               }))),
+          error ? h('div', { style: styles.errorLine }, t('createFailed') + '：' + error) : null,
           h('div', { style: styles.pickerFooter },
             h('span', { style: styles.toolbarMeta }, currentSessionId
               ? t('switchSession')
               : t('noSession')),
+            h('span', { style: styles.spacer }),
+            h('button', {
+              type: 'button',
+              style: Object.assign({}, styles.primaryButton, { marginTop: 0 }),
+              disabled: !!creating,
+              onClick: onCreate,
+            }, creating ? t('creating') : t('newSession')),
             h('button', {
               type: 'button',
               style: Object.assign({}, styles.ghostButton, currentSessionId ? null : styles.disabled),
-              disabled: !currentSessionId,
+              disabled: !currentSessionId || !!creating,
               onClick: onClear,
             }, t('pickClear')))))
     }
@@ -595,9 +659,10 @@ window.__ModuleLoader__.load({
     /**
      * Keep one retained Session reference alive for the lifetime of a pane.
      * The reference is re-acquired when the binding id changes and released on
-     * unmount; a failed attempt is retried when the session list settles.
+     * unmount; a failed attempt is retried when the catalogue learns the id
+     * (a freshly created session) or when the list settles.
      */
-    function usePaneReference(pane, sessions, phase) {
+    function usePaneReference(pane, sessions, phase, known) {
       const current = useRef(null)
       const [reference, setReference] = useState(null)
       const [failure, setFailure] = useState(null)
@@ -636,7 +701,7 @@ window.__ModuleLoader__.load({
           setReference(null)
           setFailure(error)
         }
-      }, [pane.sessionId, phase, sessions, release])
+      }, [pane.sessionId, phase, known, sessions, release])
 
       useEffect(() => drop, [drop])
 
@@ -673,15 +738,20 @@ window.__ModuleLoader__.load({
       return props.renderSlot('conversation.session', { view: 'chat' })
     }
 
-    function PaneBody({ pane, sessions, SessionProvider, renderSlot, useSessions, t, onPick }) {
+    function PaneBody({ pane, sessions, SessionProvider, renderSlot, useSessions, t, onPick, onCreate, creating, createError }) {
       const phase = useSessions(state => state.phase)
       const known = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] !== undefined : true))
-      const { reference, failure } = usePaneReference(pane, sessions, phase)
+      const { reference, failure } = usePaneReference(pane, sessions, phase, known)
 
-      if (!pane.sessionId) return h(EmptyState, { t, onPick })
-      if (failure) return h(UnavailableState, { t, onPick, detail: errorText(failure) })
-      if (!reference) return h(LoadingState, { t })
-      if (!known && phase !== 'loading') return h(UnavailableState, { t, onPick })
+      if (!pane.sessionId) {
+        return h(EmptyState, { t, onPick, onCreate, creating, error: createError })
+      }
+      if (!reference) {
+        if (failure && (known || phase !== 'loading')) {
+          return h(UnavailableState, { t, onPick, detail: errorText(failure) })
+        }
+        return h(LoadingState, { t })
+      }
 
       return h(SessionProvider, {
         session: reference,
@@ -726,12 +796,15 @@ window.__ModuleLoader__.load({
     /* ---------------------------------------------------------------- page */
 
     function MultiSessionPage(props) {
-      const { SessionProvider, renderSlot, useSessions, sessions, t } = props
+      const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, t } = props
       const [layout, setLayout] = useState(loadLayout)
       const [pickingId, setPickingId] = useState(null)
+      const [creatingPane, setCreatingPane] = useState(null)
+      const [createFailure, setCreateFailure] = useState(null)
       const [narrow, setNarrow] = useState(false)
       const rootRef = useRef(null)
       const phase = useSessions(state => state.phase)
+      const workspaces = useWorkspaces(state => state)
 
       // First run without a stored layout: fill with the two most recent sessions
       // once the catalogue settles, so an empty-looking first paint is never saved.
@@ -812,6 +885,32 @@ window.__ModuleLoader__.load({
       const clearPane = useCallback(id => { assignSession(id, null) }, [assignSession])
       const dismissPicker = useCallback(() => setPickingId(null), [])
 
+      /** Create a fresh session for one pane and bind it there. */
+      const createSession = useCallback(paneId => {
+        if (creatingPane !== null) return
+        const target = layout ? layout.panes.find(pane => pane.id === paneId) : null
+        if (!target) return
+        let snapshot = null
+        try {
+          snapshot = sessions.list.getSnapshot()
+        } catch (_unavailable) {
+          snapshot = null
+        }
+        const request = createTarget(target, workspaces, snapshot)
+        setCreatingPane(paneId)
+        setCreateFailure(null)
+        Promise.resolve()
+          .then(() => (request ? sessions.create(request) : sessions.create()))
+          .then(sessionId => {
+            setCreatingPane(null)
+            if (typeof sessionId === 'string' && sessionId !== '') assignSession(paneId, sessionId)
+          })
+          .catch(error => {
+            setCreatingPane(null)
+            setCreateFailure({ paneId, message: errorText(error) })
+          })
+      }, [assignSession, creatingPane, layout, sessions, workspaces])
+
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
         const panes = layout.panes
@@ -871,13 +970,25 @@ window.__ModuleLoader__.load({
                     useSessions,
                     t,
                     onPick: () => setPickingId(pane.id),
+                    onCreate: () => createSession(pane.id),
+                    creating: creatingPane === pane.id,
+                    createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
                   })),
                   picking ? h(SessionPicker, {
                     currentSessionId: pane.sessionId,
                     useSessions,
                     t,
-                    onPick: sessionId => assignSession(pane.id, sessionId),
-                    onClear: () => clearPane(pane.id),
+                    onPick: sessionId => {
+                      setCreateFailure(null)
+                      assignSession(pane.id, sessionId)
+                    },
+                    onClear: () => {
+                      setCreateFailure(null)
+                      clearPane(pane.id)
+                    },
+                    onCreate: () => createSession(pane.id),
+                    creating: creatingPane === pane.id,
+                    error: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
                     onClose: dismissPicker,
                   }) : null))
             })))
