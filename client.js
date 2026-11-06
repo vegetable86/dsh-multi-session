@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
     const styles = {
       root: {
         height: '100%',
+        flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
