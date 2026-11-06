@@ -804,7 +804,9 @@ window.__ModuleLoader__.load({
       const [narrow, setNarrow] = useState(false)
       const rootRef = useRef(null)
       const phase = useSessions(state => state.phase)
-      const workspaces = useWorkspaces(state => state)
+      /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
+      const readWorkspaces = typeof useWorkspaces === 'function' ? useWorkspaces : selector => selector(null)
+      const workspaces = readWorkspaces(state => state)
 
       // First run without a stored layout: fill with the two most recent sessions
       // once the catalogue settles, so an empty-looking first paint is never saved.
