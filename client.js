@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.6.0'
+    const VERSION = '0.7.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -42,7 +42,10 @@ window.__ModuleLoader__.load({
       emptyAction: '选择会话',
       switchSession: '切换会话',
       maximize: '最大化',
+      minimize: '最小化',
       restore: '还原',
+      minimizedBar: '已收起',
+      allMinimized: '所有格子都收起了，点上面的标题展开',
       closePane: '关闭这一格',
       running: '运行中',
       idle: '空闲',
@@ -62,6 +65,12 @@ window.__ModuleLoader__.load({
       paneCount: '格',
       autoArrange: '均分',
       dragHint: '拖分隔条调整相邻格子的大小',
+      chooseWorkspace: '选择工作区',
+      workspaceHint: '新会话会在这个工作区里创建，并在当前格子里打开，不会跳走',
+      workspaceDefault: '默认位置',
+      workspaceLoading: '正在加载工作区…',
+      workspaceEmpty: '还没有工作区，先用默认位置新建',
+      cancel: '取消',
     }
 
     const EN = {
@@ -81,7 +90,10 @@ window.__ModuleLoader__.load({
       emptyAction: 'Choose session',
       switchSession: 'Switch session',
       maximize: 'Maximize',
+      minimize: 'Minimize',
       restore: 'Restore',
+      minimizedBar: 'Collapsed',
+      allMinimized: 'All panes are collapsed — pick a title above to expand it',
       closePane: 'Close pane',
       running: 'Running',
       idle: 'Idle',
@@ -101,10 +113,17 @@ window.__ModuleLoader__.load({
       paneCount: 'panes',
       autoArrange: 'Even out',
       dragHint: 'Drag a divider to resize the tiles on both sides',
+      chooseWorkspace: 'Choose a workspace',
+      workspaceHint: 'The new session is created there and opens in this pane — the page stays put',
+      workspaceDefault: 'Default location',
+      workspaceLoading: 'Loading workspaces…',
+      workspaceEmpty: 'No workspaces yet — create with the default location',
+      cancel: 'Cancel',
     }
 
     const styles = {
       root: {
+        position: 'relative',
         height: '100%',
         flex: '1 1 auto',
         minHeight: 0,
@@ -189,6 +208,36 @@ window.__ModuleLoader__.load({
         flex: '0 0 auto',
         padding: '6px 8px 6px 10px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
+      },
+      minimizedBar: {
+        flex: '0 0 auto',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 8px 6px',
+        borderBottom: '1px solid var(--dsw-alias-border-l1)',
+      },
+      chip: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        maxWidth: 260,
+        padding: '3px 4px 3px 8px',
+        borderRadius: 8,
+        border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-l1)',
+        color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit',
+        fontSize: 12.5,
+        cursor: 'pointer',
+      },
+      chipTitle: {
+        minWidth: 0,
+        maxWidth: 170,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
       },
       dot: { width: 7, height: 7, borderRadius: '50%', flex: '0 0 auto' },
       titleButton: {
@@ -301,6 +350,45 @@ window.__ModuleLoader__.load({
         background: 'var(--dsw-alias-bg-overlay)',
       },
       backdrop: { position: 'absolute', inset: 0, zIndex: 30, background: 'transparent' },
+      dialogBackdrop: {
+        position: 'absolute',
+        inset: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        boxSizing: 'border-box',
+        background: 'rgba(0, 0, 0, 0.28)',
+      },
+      dialogCard: {
+        display: 'flex',
+        flexDirection: 'column',
+        width: 'min(440px, 100%)',
+        maxHeight: '100%',
+        overflow: 'hidden',
+        borderRadius: 10,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-overlay)',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.28)',
+      },
+      dialogBody: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        minHeight: 0,
+        overflowY: 'auto',
+        padding: 6,
+      },
+      optionText: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 auto' },
+      optionMeta: {
+        minWidth: 0,
+        overflow: 'hidden',
+        fontSize: 11,
+        color: 'var(--dsw-alias-label-tertiary)',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      },
       pickerHeader: {
         display: 'flex',
         alignItems: 'center',
@@ -399,8 +487,11 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M5.5 5.5V4A1.5 1.5 0 0 1 7 2.5h5A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5h-1.5' }))
     }
 
-    function IconClose() {
-      return h(Icon, null, h('path', { d: 'M4 4l8 8M12 4l-8 8' }))
+    function IconMinimize() {
+      return h(Icon, null, h('path', { d: 'M3.5 10.5h9' }))
+    }
+
+    function IconClose() {      return h(Icon, null, h('path', { d: 'M4 4l8 8M12 4l-8 8' }))
     }
 
     function IconChevron() {
@@ -484,7 +575,7 @@ window.__ModuleLoader__.load({
 
     function normalizeLayout(value) {
       if (!value || typeof value !== 'object') return null
-      if (value.version !== 1 && value.version !== 2 && value.version !== 3) return null
+      if (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4) return null
       if (!Array.isArray(value.panes)) return null
       const panes = []
       const seen = new Set()
@@ -494,6 +585,7 @@ window.__ModuleLoader__.load({
         panes.push({
           id: raw.id,
           sessionId: typeof raw.sessionId === 'string' && raw.sessionId !== '' ? raw.sessionId : null,
+          minimized: raw.minimized === true,
         })
       }
       if (panes.length === 0) return null
@@ -507,7 +599,14 @@ window.__ModuleLoader__.load({
       const maximizedId = typeof value.maximizedId === 'string' && seen.has(value.maximizedId)
         ? value.maximizedId
         : null
-      return { panes, rows, rowWeights, colWeights, maximizedId }
+      return {
+        panes,
+        rows,
+        rowWeights,
+        colWeights,
+        /* A collapsed pane cannot stay maximised: it has no cell to cover. */
+        maximizedId: maximizedId && !panes.some(pane => pane.id === maximizedId && pane.minimized) ? maximizedId : null,
+      }
     }
 
     function loadLayout() {
@@ -523,7 +622,7 @@ window.__ModuleLoader__.load({
     function saveLayout(layout) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 3,
+          version: 4,
           panes: layout.panes,
           rows: layout.rows,
           rowWeights: layout.rowWeights,
@@ -533,6 +632,21 @@ window.__ModuleLoader__.load({
       } catch (_unavailable) {
         /* Private mode or quota: the panel keeps working in memory. */
       }
+    }
+
+    /**
+     * The rows that actually render: collapsed panes keep their slot in `rows`
+     * (so expanding restores the position) but do not take grid space.
+     */
+    function visibleGrid(layout) {
+      const byId = {}
+      for (const pane of layout.panes) byId[pane.id] = pane
+      const grid = []
+      layout.rows.forEach((row, index) => {
+        const ids = row.filter(id => byId[id] && !byId[id].minimized)
+        if (ids.length > 0) grid.push({ index, ids })
+      })
+      return grid
     }
 
     function pickableSessions(snapshot) {
@@ -750,9 +864,61 @@ window.__ModuleLoader__.load({
             }, t('pickClear')))))
     }
 
+    /**
+     * Workspace step for "new session". The Host's hero picker goes through
+     * `uiWorkspace.openWorkspace`, which reveals the new session in the main
+     * panel and therefore leaves the multi-session page. Creating straight
+     * through `sessions.create` keeps the new session in its pane instead.
+     */
+    function WorkspacePicker({ t, workspaces, busy, onPick, onCancel }) {
+      const items = workspaces && Array.isArray(workspaces.items) ? workspaces.items.slice() : []
+      const ready = !!(workspaces && workspaces.phase === 'ready')
+      return h('div', { style: styles.dialogBackdrop, onClick: onCancel },
+        h('div', {
+          style: styles.dialogCard,
+          role: 'dialog',
+          'aria-label': t('chooseWorkspace'),
+          onClick: event => event.stopPropagation(),
+        },
+          h('div', { style: styles.pickerHeader },
+            h('span', { style: styles.pickerTitle }, t('chooseWorkspace')),
+            h('span', { style: styles.spacer }),
+            h(IconButton, { label: t('cancel'), onClick: onCancel }, h(IconClose))),
+          h('div', { style: styles.hint }, t('workspaceHint')),
+          h('div', { style: styles.dialogBody },
+            !ready
+              ? h('div', { style: styles.hint }, t('workspaceLoading'))
+              : items.length === 0
+                ? h('div', { style: styles.hint }, t('workspaceEmpty'))
+                : items.map(item => h('button', {
+                  key: item.workspaceId,
+                  type: 'button',
+                  'data-workspace-id': item.workspaceId,
+                  disabled: !!busy,
+                  style: styles.row,
+                  onClick: () => onPick(item.workspaceId),
+                },
+                  h('span', { style: styles.optionText },
+                    h('span', { style: styles.rowTitle }, item.title || item.path),
+                    h('span', { style: styles.optionMeta },
+                      item.path + ' · ' + (Array.isArray(item.sessionIds) ? item.sessionIds.length : 0) + ' ' + t('paneCount')))))),
+          h('div', { style: styles.pickerFooter },
+            h('span', { style: styles.toolbarMeta }, ready ? '' : t('workspaceLoading')),
+            h('span', { style: styles.spacer }),
+            h('button', { type: 'button', style: styles.ghostButton, disabled: !!busy, onClick: onCancel }, t('cancel')),
+            ready && items.length === 0
+              ? h('button', {
+                type: 'button',
+                style: Object.assign({}, styles.primaryButton, { marginTop: 0 }),
+                disabled: !!busy,
+                onClick: () => onPick(null),
+              }, t('workspaceDefault'))
+              : null)))
+    }
+
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, canClose, useSessions, t, onPick, onToggleMax, onClose }) {
+    function PaneHeader({ pane, maximized, canClose, useSessions, t, onPick, onToggleMax, onMinimize, onClose }) {
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
         ? row.displayTitle
@@ -781,13 +947,51 @@ window.__ModuleLoader__.load({
           h('span', { style: styles.titleText }, title),
           h(IconChevron)),
         h('span', { style: styles.spacer }),
+        h(IconButton, { label: t('minimize'), onClick: onMinimize }, h(IconMinimize)),
         h(IconButton, { label: maximized ? t('restore') : t('maximize'), onClick: onToggleMax },
           maximized ? h(IconRestore) : h(IconMaximize)),
         h(IconButton, { label: t('closePane'), onClick: onClose, disabled: !canClose }, h(IconClose)))
     }
 
     /**
-     * Keep one retained Session reference alive for the lifetime of a pane.
+     * A collapsed pane shrinks to a chip in the strip above the grid; the title
+     * stays visible there and clicking it brings the pane back.
+     */
+    function MinimizedChip({ pane, useSessions, t, canClose, onRestore, onClose }) {
+      const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
+      const title = row && row.displayTitle
+        ? row.displayTitle
+        : pane.sessionId
+          ? String(pane.sessionId).slice(0, 8)
+          : t('noSession')
+      const running = !!(row && row.running)
+      return h('div', {
+        style: styles.chip,
+        'data-minimized-id': pane.id,
+        title: t('restore'),
+        onClick: onRestore,
+      },
+        h('span', {
+          style: Object.assign({}, styles.dot, {
+            background: running
+              ? 'var(--dsw-alias-state-success-primary)'
+              : 'var(--dsw-alias-state-idle-primary)',
+          }),
+          title: running ? t('running') : t('idle'),
+        }),
+        h('span', { style: styles.chipTitle }, title),
+        h('span', { style: styles.spacer }),
+        h(IconButton, {
+          label: t('closePane'),
+          disabled: !canClose,
+          onClick: event => {
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+            onClose()
+          },
+        }, h(IconClose)))
+    }
+
+    /**
      * The reference is re-acquired when the binding id changes and released on
      * unmount; a failed attempt is retried when the catalogue learns the id
      * (a freshly created session) or when the list settles.
@@ -1003,7 +1207,7 @@ window.__ModuleLoader__.load({
      */
     const PaneShell = React.memo(function PaneShell(props) {      const {
         pane, maximized, canClose, picking, sessions, SessionProvider, renderSlot, useSessions, t,
-        creating, createError, onOpenPicker, onToggleMax, onClose, onAssign, onClear, onCreate, onDismissPicker,
+        creating, createError, onOpenPicker, onToggleMax, onMinimize, onClose, onAssign, onClear, onCreate, onDismissPicker,
       } = props
       return h('div', { style: styles.pane },
         h(PaneHeader, {
@@ -1014,6 +1218,7 @@ window.__ModuleLoader__.load({
           t,
           onPick: () => onOpenPicker(pane.id),
           onToggleMax: () => onToggleMax(pane.id),
+          onMinimize: () => onMinimize(pane.id),
           onClose: () => onClose(pane.id),
         }),
         h('div', { style: styles.body },
@@ -1053,6 +1258,7 @@ window.__ModuleLoader__.load({
       const [layout, setLayout] = useState(loadLayout)
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
+      const [workspaceFor, setWorkspaceFor] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
       const [draft, setDraft] = useState(null)
       const rootRef = useRef(null)
@@ -1142,6 +1348,7 @@ window.__ModuleLoader__.load({
           })
         })
         setPickingId(current => (current === id ? null : current))
+        setWorkspaceFor(current => (current === id ? null : current))
       }, [])
 
       const toggleMaximize = useCallback(id => {
@@ -1149,6 +1356,24 @@ window.__ModuleLoader__.load({
           if (!previous) return previous
           return Object.assign({}, previous, { maximizedId: previous.maximizedId === id ? null : id })
         })
+      }, [])
+
+      /** Collapse a pane to a chip above the grid; expanding puts it back in its row. */
+      const toggleMinimize = useCallback(id => {
+        setLayout(previous => {
+          if (!previous) return previous
+          let collapsed = false
+          const panes = previous.panes.map(pane => {
+            if (pane.id !== id) return pane
+            collapsed = !pane.minimized
+            return Object.assign({}, pane, { minimized: collapsed })
+          })
+          return Object.assign({}, previous, {
+            panes,
+            maximizedId: collapsed && previous.maximizedId === id ? null : previous.maximizedId,
+          })
+        })
+        setPickingId(current => (current === id ? null : current))
       }, [])
 
       const assignSession = useCallback((id, sessionId) => {
@@ -1190,19 +1415,23 @@ window.__ModuleLoader__.load({
         let pixelsPerWeight = 0
         let minPixels = 0
         let pairKey = null
+        let rowPair = null
+        const grid = visibleGrid(layout)
 
         if (axis === 'row') {
-          if (index < 0 || index + 1 >= layout.rows.length) return
-          startA = baseRows[index] || 1
-          startB = baseRows[index + 1] || 1
+          const position = grid.findIndex(entry => entry.index === index)
+          if (position < 0 || position + 1 >= grid.length) return
+          rowPair = [grid[position].index, grid[position + 1].index]
+          startA = baseRows[rowPair[0]] || 1
+          startB = baseRows[rowPair[1]] || 1
           const sum = baseRows.reduce((total, weight) => total + (weight > 0 ? weight : 1), 0)
-          const available = Math.max(0, box.height - PAD * 2 - SPLITTER * Math.max(0, layout.rows.length - 1))
+          const available = Math.max(0, box.height - PAD * 2 - SPLITTER * Math.max(0, grid.length - 1))
           pixelsPerWeight = sum > 0 ? available / sum : 0
           minPixels = MIN_PANE_H
         } else {
-          const row = layout.rows[index]
-          if (!row || row.length < 2) return
-          pairKey = [row[0], row[1]]
+          const entry = grid.find(item => item.index === index)
+          if (!entry || entry.ids.length < 2) return
+          pairKey = [entry.ids[0], entry.ids[1]]
           startA = baseCols[pairKey[0]] || 1
           startB = baseCols[pairKey[1]] || 1
           const available = Math.max(0, box.width - PAD * 2 - SPLITTER)
@@ -1229,8 +1458,8 @@ window.__ModuleLoader__.load({
           const b = pair - a
           if (axis === 'row') {
             nextRowWeights = baseRows.slice()
-            nextRowWeights[index] = a
-            nextRowWeights[index + 1] = b
+            nextRowWeights[rowPair[0]] = a
+            nextRowWeights[rowPair[1]] = b
             setDraft({ rowWeights: nextRowWeights, colWeights: baseCols })
           } else {
             nextColWeights = Object.assign({}, baseCols)
@@ -1274,7 +1503,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       /** Create a fresh session for one pane and bind it there. */
-      const createSession = useCallback(paneId => {
+      const createSession = useCallback((paneId, workspaceId) => {
         if (creatingPane !== null) return
         const target = layout ? layout.panes.find(pane => pane.id === paneId) : null
         if (!target) return
@@ -1284,7 +1513,10 @@ window.__ModuleLoader__.load({
         } catch (_unavailable) {
           snapshot = null
         }
-        const request = createTarget(target, workspaces, snapshot)
+        /* An explicit workspace goes straight to the Host; neither path navigates. */
+        const request = workspaceId ? { workspaceId } : createTarget(target, workspaces, snapshot)
+        setWorkspaceFor(null)
+        setPickingId(null)
         setCreatingPane(paneId)
         setCreateFailure(null)
         Promise.resolve()
@@ -1298,6 +1530,24 @@ window.__ModuleLoader__.load({
             setCreateFailure({ paneId, message: errorText(error) })
           })
       }, [assignSession, creatingPane, layout, sessions, workspaces])
+
+      /**
+       * Ask where a new session should live. The hero picker inside a blank
+       * conversation calls uiWorkspace.openWorkspace, which reveals the new
+       * session in the main panel; picking here avoids that reveal.
+       */
+      const requestCreate = useCallback(paneId => {
+        if (creatingPane !== null) return
+        const items = workspaces && Array.isArray(workspaces.items) ? workspaces.items : []
+        setPickingId(null)
+        setCreateFailure(null)
+        /* Wait for the catalogue before falling back: an empty list may just be loading. */
+        if (items.length === 0 && (!workspaces || workspaces.phase === 'ready')) {
+          createSession(paneId, null)
+          return
+        }
+        setWorkspaceFor(paneId)
+      }, [createSession, creatingPane, workspaces])
 
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
@@ -1332,19 +1582,23 @@ window.__ModuleLoader__.load({
           createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
           onOpenPicker: togglePicker,
           onToggleMax: toggleMaximize,
+          onMinimize: toggleMinimize,
           onClose: closePane,
           onAssign: assignSession,
           onClear: clearPane,
-          onCreate: createSession,
+          onCreate: requestCreate,
           onDismissPicker: dismissPicker,
         }))
         }
 
+        const minimizedPanes = panes.filter(pane => pane.minimized)
+
         /* Tiles never overlap: rows split the height, the panes of a row split its width. */
         const view = []
-        layout.rows.forEach((row, rowIndex) => {
+        const grid = visibleGrid(layout)
+        grid.forEach((entry, position) => {
           const cells = []
-          row.forEach((id, colIndex) => {
+          entry.ids.forEach((id, colIndex) => {
             const pane = byId[id]
             if (!pane) return
             if (colIndex > 0) {
@@ -1352,21 +1606,21 @@ window.__ModuleLoader__.load({
                 key: 'divider-v-' + id,
                 style: styles.splitterV,
                 title: t('dragHint'),
-                onPointerDown: event => beginSplitDrag(event, 'col', rowIndex),
+                onPointerDown: event => beginSplitDrag(event, 'col', entry.index),
               }))
             }
             cells.push(renderCell(pane))
           })
           view.push(h('div', {
-            key: 'row-' + rowIndex,
-            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[rowIndex] || 1 }),
+            key: 'row-' + entry.index,
+            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[entry.index] || 1 }),
           }, cells))
-          if (rowIndex < layout.rows.length - 1) {
+          if (position < grid.length - 1) {
             view.push(h('div', {
-              key: 'divider-h-' + rowIndex,
+              key: 'divider-h-' + entry.index,
               style: styles.splitterH,
               title: t('dragHint'),
-              onPointerDown: event => beginSplitDrag(event, 'row', rowIndex),
+              onPointerDown: event => beginSplitDrag(event, 'row', entry.index),
             }))
           }
         })
@@ -1389,6 +1643,20 @@ window.__ModuleLoader__.load({
               title: t('addPane'),
               onClick: addPane,
             }, '+ ' + t('addPane'))),
+          minimizedPanes.length > 0 && h('div', {
+            style: styles.minimizedBar,
+            'data-minimized-bar': '',
+          },
+            h('span', { style: styles.toolbarMeta }, t('minimizedBar')),
+            minimizedPanes.map(pane => h(MinimizedChip, {
+              key: pane.id,
+              pane,
+              useSessions,
+              t,
+              canClose: panes.length > 1,
+              onRestore: () => toggleMinimize(pane.id),
+              onClose: () => closePane(pane.id),
+            }))),
           h('div', {
             ref: hostRef,
             style: styles.host,
@@ -1403,10 +1671,23 @@ window.__ModuleLoader__.load({
                 /* While one tile is maximised the others stay mounted but invisible. */
                 visibility: maximizedId ? 'hidden' : 'visible',
               },
-            }, view)))
+            }, grid.length === 0
+              ? h('div', { style: styles.center },
+                h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
+              : view)))
       }
 
-      return h('div', { ref: rootRef, style: styles.root }, body)
+      return h('div', { ref: rootRef, style: styles.root },
+        body,
+        workspaceFor
+          ? h(WorkspacePicker, {
+            t,
+            workspaces,
+            busy: creatingPane !== null,
+            onPick: workspaceId => createSession(workspaceFor, workspaceId),
+            onCancel: () => setWorkspaceFor(null),
+          })
+          : null)
     }
 
     /* --------------------------------------------------------------- apply */

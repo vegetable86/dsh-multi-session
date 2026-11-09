@@ -234,3 +234,24 @@ MultiSessionPage                // main 槽位条目，root scope
   5. **最大化不重挂载**：所有格子始终挂载，最大化只是把目标格改成 `position: absolute; inset: 0; z-index: 20` 的覆盖层，其余格 `visibility: hidden`。这样切换最大化会保留滚动位置、输入框草稿与流式回复。
 - 不做（留给后续）：非焦点格降频/虚拟化、流式消息节流、跨格广播。当前所有格子保持实时渲染，靠 memo 与边界控制成本。
 - 验收：`node --check client.js`、`scripts/smoke.mjs`、`scripts/render-smoke.mjs` 全绿；单格工厂抛错只降级该格；面板级异常可一键重置；最大化/还原不丢对话状态。
+
+## 19. v0.7 最小化
+
+- 需求：每格都能最小化；收起时仍要在面板上方看到该会话的标题。
+- 交互：标题栏新增「最小化」（一条横线图标）。收起后该格离开网格，工具栏下方出现「已收起」横条，条上是一枚 chip：运行状态点 + 会话标题 + 关闭按钮。点 chip 展开，格子回到它原来所在的行与列位置。
+- 数据：每个格子增加 `minimized: boolean`；布局版本 3 → 4（`normalizeLayout` 继续接受 1/2/3，旧数据默认 `false`）。`rows` 不因收起而改变，所以展开能精确复位。
+- 网格：`visibleGrid(layout)` 过滤掉收起的格子；同一行两格收掉一格时，另一格独占整行；整行都收起时整行不渲染，剩余行按 `rowWeights` 重新铺满。分隔条拖动同样基于可见行计算，跨过被收起行的相邻可见行也能正确互补。
+- 与最大化互斥：最小化当前最大化的格子会先退出最大化；从存储恢复时，若 `maximizedId` 指向已收起的格子则清空。
+- 全部收起时，网格区显示「所有格子都收起了，点上面的标题展开」。
+- 收起即卸载该格的对话视图（会话本身在后台继续运行，展开时重新挂载并显示最新状态）；这样收起也是对多格场景的一种减负。
+- 不做：收起时保持对话挂载、拖拽 chip 排序、把 chip 收进标题栏。
+
+## 20. v0.7 新建会话时选择工作区（不跳转）
+
+- 问题：在格子里新建的会话是空白会话，原生 hero 会显示「选择工作区」。那个选择器由 `ui-conversation` 的 factory inject 提供：`selectWorkspace(workspaceId)` → `uiWorkspace.openWorkspace(...)` → 建好会话后 `replaceMain(sessionId, ..., 'reveal')` → `ctx.layout.selectPanel(null)`；而 `selectPanel(null)` 的语义就是「显示当前会话」，于是主面板从 `multisession` 切回 `conversation`，看起来像「点完工作区就跳走了」。
+- 方案：新建会话时先由插件自己问工作区。点击空格的「新建会话」或选择器底部的「新建会话」→ 弹出工作区对话框（列出 `useWorkspaces()` 的 `items`，每行标题 + 路径 + 会话数）→ 选定后直接 `sessions.create({ workspaceId })`，成功后 `assignSession(paneId, id)` 绑到当前格。整个过程不调用 `uiWorkspace.openWorkspace`，因此没有任何 `selectPanel(null)`，页面留在多会话面板。
+- 没有工作区时（`items` 为空）才退回 `createTarget()` 的启发式（当前会话的 `cwd` / 最近会话的 `cwd` / Host 默认），对话框里给一个「默认位置」按钮。
+- 对话框形态：面板级覆盖层（`position:absolute; inset:0; z-index:50`），卡片式，`role="dialog"` + `aria-label`，列表项带 `data-workspace-id` 便于测试；`busy` 时禁用选项；取消关闭不收格子。
+- 测试：`render-smoke` 断言「点新建先出现工作区对话框」「列出全部工作区」「未选之前不调用 `sessions.create`」「选 `ws-1` 后 `create({ workspaceId: 'ws-1' })` 并绑定」；失败路径同样先选工作区再拒绝。
+- 不做：在已绑定空白会话的 hero 里替换工作区选择器（那是 `ui-conversation` 的 root 作用域槽，插件无权覆盖）；从其它面板拖入工作区；格内切换工作区。
+

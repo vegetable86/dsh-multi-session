@@ -172,8 +172,16 @@ const dialog = container.querySelector('[role="dialog"]')
 const createButton = dialog
   ? Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === 'newSession')
   : null
+await act(async () => { createButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+/* Creating asks which workspace first; nothing is created until a choice is made. */
+const workspaceDialog = container.querySelector('[role="dialog"][aria-label="chooseWorkspace"]')
+const workspacesOffered = workspaceDialog
+  ? Array.from(workspaceDialog.querySelectorAll('[data-workspace-id]')).map(button => button.getAttribute('data-workspace-id'))
+  : []
+const createdBeforePick = created.length
+const workspaceOption = workspaceDialog ? workspaceDialog.querySelector('[data-workspace-id="ws-1"]') : null
 await act(async () => {
-  createButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  workspaceOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await Promise.resolve()
   await Promise.resolve()
 })
@@ -237,6 +245,9 @@ const checks = [
   [brokenHtml.includes('viewUnavailable'), 'a broken conversation contract degrades to a message'],
   [brokenHtml.includes('retry'), 'the degraded pane still offers a retry'],
   [iconHtml.includes('<svg'), 'sidebar icon renders svg'],
+  [workspaceDialog !== null, 'new session asks for a workspace first'],
+  [workspacesOffered.join(',') === 'ws-1,ws-2', 'the workspace dialog lists every workspace'],
+  [createdBeforePick === 0, 'nothing is created before a workspace is picked'],
   [created.length === 1 && created[0] && created[0].workspaceId === 'ws-1', 'new session inherits the pane workspace'],
   [createdHtml.includes('data-session="fresh-session-1234"'), 'pane binds the created session'],
   [createdHtml.includes('fresh-se'), 'header shows the created session'],
@@ -261,8 +272,13 @@ document.body.appendChild(emptyContainer)
 const emptyRoot = createRoot(emptyContainer)
 await act(async () => { emptyRoot.render(React.createElement(main.comp, mainProps)) })
 const emptyCreate = Array.from(emptyContainer.querySelectorAll('button')).find(button => button.textContent === 'newSession')
+await act(async () => { emptyCreate.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+const emptyWorkspaceDialog = emptyContainer.querySelector('[role="dialog"][aria-label="chooseWorkspace"]')
+const emptyWorkspaceOption = emptyWorkspaceDialog
+  ? emptyWorkspaceDialog.querySelector('[data-workspace-id="ws-1"]')
+  : null
 await act(async () => {
-  emptyCreate.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  emptyWorkspaceOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await Promise.resolve()
   await Promise.resolve()
 })
@@ -352,7 +368,7 @@ checks.push([
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tiled.version === 3 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
+  tiled.version === 4 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
   'the split weights are persisted',
 ])
 
@@ -401,6 +417,47 @@ checks.push([
   'restoring puts the tile back into its row',
 ])
 await act(async () => { maxRoot.unmount() })
+
+// Minimising collapses a pane into the strip above the grid; the chip keeps the title.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 4,
+  panes: [
+    { id: 'n1', sessionId: 'session-a' },
+    { id: 'n2', sessionId: 'session-b' },
+  ],
+  rows: [['n1'], ['n2']],
+  rowWeights: [1, 1],
+  colWeights: { n1: 1, n2: 1 },
+  maximizedId: null,
+}))
+const minContainer = document.createElement('div')
+document.body.appendChild(minContainer)
+const minRoot = createRoot(minContainer)
+await act(async () => { minRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(minContainer)
+await click(minContainer.querySelector('[data-pane-id="n1"] button[title="minimize"]'))
+const chip = minContainer.querySelector('[data-minimized-id="n1"]')
+checks.push([
+  !!chip && chip.textContent.includes('标题甲') && !minContainer.querySelector('[data-pane-id="n1"]'),
+  'minimising collapses the pane into a chip that keeps its title',
+])
+checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbouring pane keeps its cell'])
+await sleep(260)
+const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  minimizedStore.version === 4 && minimizedStore.panes.find(pane => pane.id === 'n1').minimized === true,
+  'the collapsed flag is persisted',
+])
+await click(chip)
+checks.push([!!minContainer.querySelector('[data-pane-id="n1"]'), 'clicking the chip restores the pane'])
+await click(minContainer.querySelector('[data-pane-id="n1"] button[title="minimize"]'))
+await click(minContainer.querySelector('[data-pane-id="n2"] button[title="minimize"]'))
+checks.push([
+  minContainer.textContent.includes('allMinimized') &&
+    minContainer.querySelectorAll('[data-minimized-id]').length === 2,
+  'collapsing every pane keeps both titles in the strip',
+])
+await act(async () => { minRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {
