@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.7.0'
+    const VERSION = '0.8.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
     const MIN_PANE_W = 200
     const MIN_PANE_H = 140
     /** Breathing room around the tiled area. */
-    const PAD = 8
+    const PAD = 6
     const REF_SOURCE = 'multisessionPane'
 
     const ZH = {
@@ -71,6 +71,9 @@ window.__ModuleLoader__.load({
       workspaceLoading: '正在加载工作区…',
       workspaceEmpty: '还没有工作区，先用默认位置新建',
       cancel: '取消',
+      immersive: '沉浸全屏',
+      exitImmersive: '退出全屏',
+      immersiveHint: '把多会话铺满整个窗口，盖住左右两栏；按 Esc 也能退出',
     }
 
     const EN = {
@@ -119,6 +122,9 @@ window.__ModuleLoader__.load({
       workspaceLoading: 'Loading workspaces…',
       workspaceEmpty: 'No workspaces yet — create with the default location',
       cancel: 'Cancel',
+      immersive: 'Immersive',
+      exitImmersive: 'Exit immersive',
+      immersiveHint: 'Cover the whole window with the multi-session panel; Esc also exits',
     }
 
     const styles = {
@@ -133,12 +139,24 @@ window.__ModuleLoader__.load({
         background: 'var(--dsw-alias-bg-base)',
         color: 'var(--dsw-alias-label-primary)',
       },
+      /* Immersive: the panel leaves the grid and covers the whole window. */
+      immersive: {
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        zIndex: 60,
+        paddingTop: 'calc(var(--dsh-windows-titlebar-height, 0px) + 2px)',
+        WebkitAppRegion: 'no-drag',
+        boxShadow: '0 0 0 1px var(--dsw-alias-border-l2)',
+      },
       toolbar: {
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 8,
         flex: '0 0 auto',
-        padding: '10px 14px',
+        padding: '6px 8px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
       toolbarTitle: { fontSize: 13, fontWeight: 600, letterSpacing: '0.01em' },
@@ -204,9 +222,9 @@ window.__ModuleLoader__.load({
       paneHeader: {
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 4,
         flex: '0 0 auto',
-        padding: '6px 8px 6px 10px',
+        padding: '3px 5px 3px 8px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
       minimizedBar: {
@@ -319,6 +337,20 @@ window.__ModuleLoader__.load({
         background: 'transparent',
         color: 'var(--dsw-alias-label-secondary)',
         fontSize: 12,
+        cursor: 'pointer',
+      },
+      iconGhost: {
+        flex: '0 0 auto',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 24,
+        height: 22,
+        padding: 0,
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: 6,
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-secondary)',
         cursor: 'pointer',
       },
       emptyActions: {
@@ -491,6 +523,18 @@ window.__ModuleLoader__.load({
       return h(Icon, null, h('path', { d: 'M3.5 10.5h9' }))
     }
 
+    function IconExpand() {
+      return h(Icon, null, h('path', {
+        d: 'M6.5 2.5H2.5V6.5M9.5 2.5h4v4M13.5 9.5v4h-4M6.5 13.5h-4v-4',
+      }))
+    }
+
+    function IconCollapse() {
+      return h(Icon, null, h('path', {
+        d: 'M2.5 6.5h4v-4M13.5 6.5h-4v-4M10 13.5v-4h4M6 13.5v-4H2.5',
+      }))
+    }
+
     function IconClose() {      return h(Icon, null, h('path', { d: 'M4 4l8 8M12 4l-8 8' }))
     }
 
@@ -533,7 +577,7 @@ window.__ModuleLoader__.load({
       return typeof value === 'number' && isFinite(value) && value > 0 ? value : fallback
     }
 
-    function makeLayout(panes, maximizedId) {
+    function makeLayout(panes, maximizedId, immersive) {
       const ids = panes.map(pane => pane.id)
       const rows = defaultRows(ids)
       const colWeights = {}
@@ -544,6 +588,7 @@ window.__ModuleLoader__.load({
         rowWeights: rows.map(() => 1),
         colWeights,
         maximizedId: maximizedId || null,
+        immersive: immersive === true,
       }
     }
 
@@ -575,7 +620,7 @@ window.__ModuleLoader__.load({
 
     function normalizeLayout(value) {
       if (!value || typeof value !== 'object') return null
-      if (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4) return null
+      if (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4 && value.version !== 5) return null
       if (!Array.isArray(value.panes)) return null
       const panes = []
       const seen = new Set()
@@ -606,6 +651,7 @@ window.__ModuleLoader__.load({
         colWeights,
         /* A collapsed pane cannot stay maximised: it has no cell to cover. */
         maximizedId: maximizedId && !panes.some(pane => pane.id === maximizedId && pane.minimized) ? maximizedId : null,
+        immersive: value.immersive === true,
       }
     }
 
@@ -622,12 +668,13 @@ window.__ModuleLoader__.load({
     function saveLayout(layout) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 4,
+          version: 5,
           panes: layout.panes,
           rows: layout.rows,
           rowWeights: layout.rowWeights,
           colWeights: layout.colWeights,
           maximizedId: layout.maximizedId,
+          immersive: layout.immersive === true,
         }))
       } catch (_unavailable) {
         /* Private mode or quota: the panel keeps working in memory. */
@@ -1289,17 +1336,24 @@ window.__ModuleLoader__.load({
       }, [layout])
 
       const maximizedId = layout ? layout.maximizedId : null
+      const immersive = layout ? layout.immersive === true : false
       /* Drag previews live in `draft` so the committed layout only changes on release. */
       const rowWeights = layout ? (draft ? draft.rowWeights : layout.rowWeights) : []
       const colWeights = layout ? (draft ? draft.colWeights : layout.colWeights) : {}
       useEffect(() => {
-        if (!maximizedId) return
+        if (!maximizedId && !immersive) return
         const onKeyDown = event => {
-          if (event.key === 'Escape') setLayout(previous => (previous ? Object.assign({}, previous, { maximizedId: null }) : previous))
+          if (event.key !== 'Escape') return
+          setLayout(previous => {
+            if (!previous) return previous
+            if (previous.maximizedId) return Object.assign({}, previous, { maximizedId: null })
+            if (previous.immersive) return Object.assign({}, previous, { immersive: false })
+            return previous
+          })
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-      }, [maximizedId])
+      }, [maximizedId, immersive])
 
       const addPane = useCallback(() => {
         const id = nextPaneId()
@@ -1356,6 +1410,13 @@ window.__ModuleLoader__.load({
           if (!previous) return previous
           return Object.assign({}, previous, { maximizedId: previous.maximizedId === id ? null : id })
         })
+      }, [])
+
+      /** Fill the whole window with the panel; the grid itself is untouched. */
+      const toggleImmersive = useCallback(() => {
+        setLayout(previous => (previous
+          ? Object.assign({}, previous, { immersive: previous.immersive !== true })
+          : previous))
       }, [])
 
       /** Collapse a pane to a chip above the grid; expanding puts it back in its row. */
@@ -1633,6 +1694,14 @@ window.__ModuleLoader__.load({
             h('span', { style: styles.spacer }),
             h('button', {
               type: 'button',
+              style: styles.iconGhost,
+              title: immersive ? t('exitImmersive') : t('immersive') + ' — ' + t('immersiveHint'),
+              'aria-label': immersive ? t('exitImmersive') : t('immersive'),
+              'aria-pressed': immersive ? 'true' : 'false',
+              onClick: toggleImmersive,
+            }, h(immersive ? IconCollapse : IconExpand)),
+            h('button', {
+              type: 'button',
               style: styles.ghostButton,
               title: t('autoArrange'),
               onClick: autoArrange,
@@ -1677,7 +1746,11 @@ window.__ModuleLoader__.load({
               : view)))
       }
 
-      return h('div', { ref: rootRef, style: styles.root },
+      return h('div', {
+        ref: rootRef,
+        style: immersive ? Object.assign({}, styles.root, styles.immersive) : styles.root,
+        'data-immersive': immersive ? '' : undefined,
+      },
         body,
         workspaceFor
           ? h(WorkspacePicker, {

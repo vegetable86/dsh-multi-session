@@ -255,3 +255,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 测试：`render-smoke` 断言「点新建先出现工作区对话框」「列出全部工作区」「未选之前不调用 `sessions.create`」「选 `ws-1` 后 `create({ workspaceId: 'ws-1' })` 并绑定」；失败路径同样先选工作区再拒绝。
 - 不做：在已绑定空白会话的 hero 里替换工作区选择器（那是 `ui-conversation` 的 root 作用域槽，插件无权覆盖）；从其它面板拖入工作区；格内切换工作区。
 
+## 21. v0.8 沉浸全屏与紧凑密度
+
+- 需求：会话分得多、每格能看到的区域太小，希望用前端手段把可用面积放大。
+- 沉浸全屏：工具条新增一个四角图标按钮，把面板根节点从网格中的一块切成 `position: fixed; inset: 0; z-index: 60`，整块盖住左栏与右栏，退出后回到原来的列宽。由于只是同一棵 React 树里的定位变化，对话组件不重挂载，滚动位置、输入草稿、流式回复都保留。`Esc` 的优先级是「先退最大化，再退全屏」。顶部 `padding-top` 叠加 `--dsh-windows-titlebar-height`，避免盖住 Windows 的窗口拖动区；根节点声明 `-webkit-app-region: no-drag`。
+- 紧凑密度：`PAD` 8 → 6，工具条 `10px 14px` → `6px 8px`、间距 10 → 8，格子标题栏 `6px 8px 6px 10px` → `3px 5px 3px 8px`、按钮间距 6 → 4。每行大约省出 10–14px 高度，格子内容相应变高。
+- 数据：布局版本 4 → 5，新增 `immersive: boolean`；`normalizeLayout` 继续接受 1–4，旧数据默认 `false`。全屏状态跟布局一起持久化，刷新后仍在全屏。
+- 测试：`render-smoke` 断言「点按钮后根节点 `position === 'fixed'` 且带 `data-immersive`」「全屏标志写进 v5 存储」「`Esc` 退全屏后格子仍在原位」。
+- 不做：真·独立窗口 / 系统级全屏 API；把左栏收成 rail 而不是盖住；全屏时隐藏工具条。
+
+

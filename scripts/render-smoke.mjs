@@ -368,7 +368,7 @@ checks.push([
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tiled.version === 4 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
+  tiled.version === 5 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
   'the split weights are persisted',
 ])
 
@@ -445,7 +445,7 @@ checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbour
 await sleep(260)
 const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  minimizedStore.version === 4 && minimizedStore.panes.find(pane => pane.id === 'n1').minimized === true,
+  minimizedStore.version === 5 && minimizedStore.panes.find(pane => pane.id === 'n1').minimized === true,
   'the collapsed flag is persisted',
 ])
 await click(chip)
@@ -458,6 +458,34 @@ checks.push([
   'collapsing every pane keeps both titles in the strip',
 ])
 await act(async () => { minRoot.unmount() })
+
+// Immersive mode lifts the whole panel out of the frame and remembers the choice.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 5,
+  panes: [{ id: 'i1', sessionId: 'session-a' }],
+  rows: [['i1']],
+  rowWeights: [1],
+  colWeights: { i1: 1 },
+  maximizedId: null,
+  immersive: false,
+}))
+const immContainer = document.createElement('div')
+document.body.appendChild(immContainer)
+const immRoot = createRoot(immContainer)
+await act(async () => { immRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(immContainer)
+await click(immContainer.querySelector('button[aria-label="immersive"]'))
+const immersiveRoot = immContainer.querySelector('[data-immersive]')
+checks.push([!!immersiveRoot && immersiveRoot.style.position === 'fixed', 'immersive lifts the panel into a fixed overlay'])
+await sleep(260)
+const immersiveStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([immersiveStore.immersive === true, 'the immersive flag is persisted'])
+await act(async () => { emitWindow('keydown', { key: 'Escape' }) })
+checks.push([
+  immContainer.querySelector('[data-immersive]') === null && !!immContainer.querySelector('[data-pane-id="i1"]'),
+  'Esc leaves immersive without touching the grid',
+])
+await act(async () => { immRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {
