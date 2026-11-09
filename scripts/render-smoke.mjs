@@ -368,7 +368,7 @@ checks.push([
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tiled.version === 5 && tiled.rowWeights[0] > tiled.rowWeights[1] && tiled.colWeights.d2 < tiled.colWeights.d3,
+  tiled.version === 6 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
   'the split weights are persisted',
 ])
 
@@ -381,7 +381,7 @@ checks.push([
 await sleep(260)
 const evened = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  evened.rowWeights.every(item => item === 1) && Object.values(evened.colWeights).every(item => item === 1),
+  evened.tabs[0].rowWeights.every(item => item === 1) && Object.values(evened.tabs[0].colWeights).every(item => item === 1),
   'even out clears the stored weights',
 ])
 await act(async () => { dragRoot.unmount() })
@@ -445,7 +445,7 @@ checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbour
 await sleep(260)
 const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  minimizedStore.version === 5 && minimizedStore.panes.find(pane => pane.id === 'n1').minimized === true,
+  minimizedStore.version === 6 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
   'the collapsed flag is persisted',
 ])
 await click(chip)
@@ -486,6 +486,92 @@ checks.push([
   'Esc leaves immersive without touching the grid',
 ])
 await act(async () => { immRoot.unmount() })
+
+// Browser-like tabs: each tab carries its own whole board.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 6,
+  activeTabId: 't1',
+  immersive: false,
+  tabs: [
+    {
+      id: 't1',
+      title: '第一个',
+      panes: [{ id: 'tabpane1', sessionId: 'session-a' }],
+      rows: [['tabpane1']],
+      rowWeights: [1],
+      colWeights: { tabpane1: 1 },
+      maximizedId: null,
+    },
+    {
+      id: 't2',
+      title: '第二个',
+      panes: [{ id: 'tabpane2', sessionId: 'session-b' }],
+      rows: [['tabpane2']],
+      rowWeights: [1],
+      colWeights: { tabpane2: 1 },
+      maximizedId: null,
+    },
+  ],
+}))
+const tabContainer = document.createElement('div')
+document.body.appendChild(tabContainer)
+const tabRoot = createRoot(tabContainer)
+await act(async () => { tabRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(tabContainer)
+
+checks.push([
+  tabContainer.querySelectorAll('[data-tab-id]').length === 2 &&
+    !!tabContainer.querySelector('[data-pane-id="tabpane1"]') &&
+    !tabContainer.querySelector('[data-pane-id="tabpane2"]'),
+  'only the active tab renders its own board',
+])
+
+await click(tabContainer.querySelector('[data-tab-id="t2"]'))
+checks.push([
+  !!tabContainer.querySelector('[data-pane-id="tabpane2"]') &&
+    !tabContainer.querySelector('[data-pane-id="tabpane1"]'),
+  'switching a tab swaps the whole tiling board',
+])
+
+await click(tabContainer.querySelector('button[aria-label="newTab"]'))
+checks.push([
+  tabContainer.querySelectorAll('[data-tab-id]').length === 3,
+  'the plus button opens another tab',
+])
+
+await act(async () => { await sleep(260) })
+const tabStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  tabStore.version === 6 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
+  'all tabs are persisted together',
+])
+
+await click(tabContainer.querySelector('[data-tab-id="t1"] [aria-label="closeTab"]'))
+checks.push([
+  tabContainer.querySelectorAll('[data-tab-id]').length === 2 &&
+    !tabContainer.querySelector('[data-tab-id="t1"]'),
+  'closing a tab removes it from the strip',
+])
+
+const renameTarget = tabContainer.querySelector('[data-tab-id="t2"]')
+await act(async () => {
+  renameTarget.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }))
+})
+const renameInput = tabContainer.querySelector('[data-tab-id="t2"] input')
+let renamed = false
+if (renameInput) {
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+  await act(async () => {
+    setter.call(renameInput, '改过的名字')
+    renameInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    renameInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  })
+  renamed = tabContainer.textContent.includes('改过的名字')
+}
+checks.push([renamed, 'double-clicking a tab renames it'])
+await act(async () => { tabRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {

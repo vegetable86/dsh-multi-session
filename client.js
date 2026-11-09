@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.8.0'
+    const VERSION = '0.9.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
     const STORAGE_KEY = 'dsh.multi-session.v1'
     /** Guard against a corrupted stored layout; the UI itself has no cap. */
     const STORED_PANE_LIMIT = 32
+    const STORED_TAB_LIMIT = 24
     /** Thickness of the draggable border between two tiles, in CSS pixels. */
     const SPLITTER = 6
     /** Smallest tile the user can drag down to, in CSS pixels. */
@@ -74,6 +75,11 @@ window.__ModuleLoader__.load({
       immersive: '沉浸全屏',
       exitImmersive: '退出全屏',
       immersiveHint: '把多会话铺满整个窗口，盖住左右两栏；按 Esc 也能退出',
+      newTab: '新建标签',
+      untitledTab: '未命名标签',
+      closeTab: '关闭标签',
+      renameTab: '双击重命名',
+      tabTitlePlaceholder: '标签名称',
     }
 
     const EN = {
@@ -125,6 +131,11 @@ window.__ModuleLoader__.load({
       immersive: 'Immersive',
       exitImmersive: 'Exit immersive',
       immersiveHint: 'Cover the whole window with the multi-session panel; Esc also exits',
+      newTab: 'New tab',
+      untitledTab: 'Untitled tab',
+      closeTab: 'Close tab',
+      renameTab: 'Double-click to rename',
+      tabTitlePlaceholder: 'Tab name',
     }
 
     const styles = {
@@ -150,6 +161,76 @@ window.__ModuleLoader__.load({
         paddingTop: 'calc(var(--dsh-windows-titlebar-height, 0px) + 2px)',
         WebkitAppRegion: 'no-drag',
         boxShadow: '0 0 0 1px var(--dsw-alias-border-l2)',
+      },
+      /* Browser-like tab strip: one tab = one whole tiling board. */
+      tabBar: {
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 2,
+        flex: '0 0 auto',
+        padding: '4px 6px 0',
+        overflowX: 'auto',
+        borderBottom: '1px solid var(--dsw-alias-border-l1)',
+      },
+      tab: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        maxWidth: 220,
+        flex: '0 0 auto',
+        padding: '5px 8px',
+        borderRadius: '8px 8px 0 0',
+        border: '1px solid transparent',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-secondary)',
+        font: 'inherit',
+        fontSize: 12.5,
+        cursor: 'pointer',
+      },
+      tabActive: {
+        background: 'var(--dsw-alias-bg-l1)',
+        borderColor: 'var(--dsw-alias-border-l1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontWeight: 600,
+      },
+      tabTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 },
+      tabDot: {
+        width: 6,
+        height: 6,
+        flex: '0 0 auto',
+        borderRadius: 3,
+        background: 'var(--dsw-alias-state-success-primary)',
+      },
+      tabClose: {
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-tertiary)',
+        fontSize: 14,
+        lineHeight: 1,
+        padding: '0 2px',
+        borderRadius: 4,
+        cursor: 'pointer',
+      },
+      tabAdd: {
+        flex: '0 0 auto',
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-secondary)',
+        fontSize: 16,
+        lineHeight: 1,
+        padding: '4px 8px',
+        borderRadius: 6,
+        cursor: 'pointer',
+      },
+      tabInput: {
+        width: 120,
+        font: 'inherit',
+        fontSize: 12.5,
+        padding: '2px 4px',
+        borderRadius: 4,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-base)',
+        color: 'var(--dsw-alias-label-primary)',
       },
       toolbar: {
         display: 'flex',
@@ -561,6 +642,10 @@ window.__ModuleLoader__.load({
       return 'pane-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
     }
 
+    function nextTabId() {
+      return 'tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
+    }
+
     /** Two panes per row; an odd count leaves the first row on its own. */
     function defaultRows(ids) {
       const rows = []
@@ -577,7 +662,7 @@ window.__ModuleLoader__.load({
       return typeof value === 'number' && isFinite(value) && value > 0 ? value : fallback
     }
 
-    function makeLayout(panes, maximizedId, immersive) {
+    function makeLayout(panes, maximizedId) {
       const ids = panes.map(pane => pane.id)
       const rows = defaultRows(ids)
       const colWeights = {}
@@ -588,8 +673,15 @@ window.__ModuleLoader__.load({
         rowWeights: rows.map(() => 1),
         colWeights,
         maximizedId: maximizedId || null,
-        immersive: immersive === true,
       }
+    }
+
+    /** One browser-like tab: a whole tiling board plus its own title. */
+    function makeTab(panes, maximizedId, title) {
+      return Object.assign({
+        id: nextTabId(),
+        title: typeof title === 'string' ? title : '',
+      }, makeLayout(panes, maximizedId))
     }
 
     /** Keep only known pane ids, and give every pane a row even if storage lost it. */
@@ -620,7 +712,6 @@ window.__ModuleLoader__.load({
 
     function normalizeLayout(value) {
       if (!value || typeof value !== 'object') return null
-      if (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4 && value.version !== 5) return null
       if (!Array.isArray(value.panes)) return null
       const panes = []
       const seen = new Set()
@@ -651,30 +742,67 @@ window.__ModuleLoader__.load({
         colWeights,
         /* A collapsed pane cannot stay maximised: it has no cell to cover. */
         maximizedId: maximizedId && !panes.some(pane => pane.id === maximizedId && pane.minimized) ? maximizedId : null,
-        immersive: value.immersive === true,
       }
     }
 
-    function loadLayout() {
+    function normalizeTab(raw) {
+      const layout = normalizeLayout(raw)
+      if (!layout) return null
+      const id = typeof raw.id === 'string' && raw.id !== '' ? raw.id : nextTabId()
+      const title = typeof raw.title === 'string' ? raw.title.trim().slice(0, 60) : ''
+      return Object.assign({ id, title }, layout)
+    }
+
+    /**
+     * The board holds every tab. Version 6 stores tabs; anything older was a
+     * single board and becomes the first tab, so an upgrade keeps its layout.
+     */
+    function normalizeBoard(value) {
+      if (!value || typeof value !== 'object') return null
+      if (Array.isArray(value.tabs)) {
+        const tabs = []
+        const seen = new Set()
+        for (const raw of value.tabs.slice(0, STORED_TAB_LIMIT)) {
+          const tab = normalizeTab(raw)
+          if (!tab || seen.has(tab.id)) continue
+          seen.add(tab.id)
+          tabs.push(tab)
+        }
+        if (tabs.length === 0) return null
+        const activeTabId = tabs.some(tab => tab.id === value.activeTabId) ? value.activeTabId : tabs[0].id
+        return { tabs, activeTabId, immersive: value.immersive === true }
+      }
+      if (typeof value.version !== 'number' || value.version < 1 || value.version > 5) return null
+      const tab = normalizeTab(value)
+      if (!tab) return null
+      return { tabs: [tab], activeTabId: tab.id, immersive: value.immersive === true }
+    }
+
+    function loadBoard() {
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY)
         if (!raw) return null
-        return normalizeLayout(JSON.parse(raw))
+        return normalizeBoard(JSON.parse(raw))
       } catch (_unavailable) {
         return null
       }
     }
 
-    function saveLayout(layout) {
+    function saveBoard(board) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 5,
-          panes: layout.panes,
-          rows: layout.rows,
-          rowWeights: layout.rowWeights,
-          colWeights: layout.colWeights,
-          maximizedId: layout.maximizedId,
-          immersive: layout.immersive === true,
+          version: 6,
+          activeTabId: board.activeTabId,
+          immersive: board.immersive === true,
+          tabs: board.tabs.map(tab => ({
+            id: tab.id,
+            title: tab.title,
+            panes: tab.panes,
+            rows: tab.rows,
+            rowWeights: tab.rowWeights,
+            colWeights: tab.colWeights,
+            maximizedId: tab.maximizedId,
+          })),
         }))
       } catch (_unavailable) {
         /* Private mode or quota: the panel keeps working in memory. */
@@ -1296,13 +1424,92 @@ window.__ModuleLoader__.load({
           }) : null))
     })
 
+    /** One browser tab: title follows its first bound session until renamed. */
+    function TabButton({ tab, active, canClose, useSessions, t, onSelect, onClose, onRename }) {
+      const [editing, setEditing] = useState(false)
+      const [value, setValue] = useState('')
+      const label = useSessions(state => {
+        if (tab.title) return tab.title
+        for (const pane of tab.panes) {
+          if (!pane.sessionId) continue
+          const row = state.byId ? state.byId[pane.sessionId] : undefined
+          if (row) return row.displayTitle
+        }
+        return t('untitledTab')
+      })
+      const running = useSessions(state => tab.panes.some(pane => {
+        if (!pane.sessionId) return false
+        const row = state.byId ? state.byId[pane.sessionId] : undefined
+        return row ? row.running === true : false
+      }))
+
+      const commit = () => {
+        onRename(tab.id, value)
+        setEditing(false)
+      }
+
+      return h('div', {
+        role: 'tab',
+        tabIndex: 0,
+        'data-tab-id': tab.id,
+        'aria-selected': active ? 'true' : 'false',
+        title: t('renameTab'),
+        style: active ? Object.assign({}, styles.tab, styles.tabActive) : styles.tab,
+        onClick: () => onSelect(tab.id),
+        onDoubleClick: event => {
+          event.stopPropagation()
+          setValue(tab.title || '')
+          setEditing(true)
+        },
+        onKeyDown: event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          onSelect(tab.id)
+        },
+      },
+      running ? h('span', { style: styles.tabDot, 'data-tab-running': '' }) : null,
+      editing
+        ? h('input', {
+          style: styles.tabInput,
+          value,
+          placeholder: t('tabTitlePlaceholder'),
+          autoFocus: true,
+          onClick: event => event.stopPropagation(),
+          onChange: event => setValue(event.target.value),
+          onBlur: commit,
+          onKeyDown: event => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              commit()
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setEditing(false)
+            }
+          },
+        })
+        : h('span', { style: styles.tabTitle }, label),
+      canClose
+        ? h('button', {
+          type: 'button',
+          style: styles.tabClose,
+          'aria-label': t('closeTab'),
+          title: t('closeTab'),
+          onClick: event => {
+            event.stopPropagation()
+            onClose(tab.id)
+          },
+        }, '×')
+        : null)
+    }
+
     function MultiSessionPage(props) {
       return h(PageBoundary, { t: props.t }, h(MultiSessionView, props))
     }
 
     function MultiSessionView(props) {
       const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, t } = props
-      const [layout, setLayout] = useState(loadLayout)
+      const [board, setBoard] = useState(loadBoard)
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
       const [workspaceFor, setWorkspaceFor] = useState(null)
@@ -1315,28 +1522,45 @@ window.__ModuleLoader__.load({
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
       const readWorkspaces = typeof useWorkspaces === 'function' ? useWorkspaces : selector => selector(null)
       const workspaces = readWorkspaces(state => state)
+      const layout = board ? (board.tabs.find(tab => tab.id === board.activeTabId) || board.tabs[0]) : null
+      const immersive = board ? board.immersive === true : false
+      /* Layout edits always land on the active tab, so every pane handler below
+         keeps working with a single tab-shaped value. */
+      const setLayout = useCallback(updater => {
+        setBoard(previous => {
+          if (!previous) return previous
+          const index = previous.tabs.findIndex(tab => tab.id === previous.activeTabId)
+          if (index < 0) return previous
+          const current = previous.tabs[index]
+          const next = typeof updater === 'function' ? updater(current) : updater
+          if (!next || next === current) return previous
+          const tabs = previous.tabs.slice()
+          tabs[index] = next
+          return Object.assign({}, previous, { tabs })
+        })
+      }, [])
 
-      // First run without a stored layout: fill with the two most recent sessions
+      // First run without a stored board: fill with the two most recent sessions
       // once the catalogue settles, so an empty-looking first paint is never saved.
       useEffect(() => {
-        if (layout !== null || phase === 'loading') return
+        if (board !== null || phase === 'loading') return
         let snapshot = null
         try {
           snapshot = sessions.list.getSnapshot()
         } catch (_unavailable) {
           snapshot = null
         }
-        setLayout(makeLayout(defaultPanes(snapshot), null))
-      }, [layout, phase, sessions])
+        const tab = makeTab(defaultPanes(snapshot), null, '')
+        setBoard({ tabs: [tab], activeTabId: tab.id, immersive: false })
+      }, [board, phase, sessions])
 
       useEffect(() => {
-        if (layout === null) return
-        const timer = setTimeout(() => saveLayout(layout), 200)
+        if (board === null) return
+        const timer = setTimeout(() => saveBoard(board), 200)
         return () => clearTimeout(timer)
-      }, [layout])
+      }, [board])
 
       const maximizedId = layout ? layout.maximizedId : null
-      const immersive = layout ? layout.immersive === true : false
       /* Drag previews live in `draft` so the committed layout only changes on release. */
       const rowWeights = layout ? (draft ? draft.rowWeights : layout.rowWeights) : []
       const colWeights = layout ? (draft ? draft.colWeights : layout.colWeights) : {}
@@ -1344,16 +1568,69 @@ window.__ModuleLoader__.load({
         if (!maximizedId && !immersive) return
         const onKeyDown = event => {
           if (event.key !== 'Escape') return
-          setLayout(previous => {
-            if (!previous) return previous
-            if (previous.maximizedId) return Object.assign({}, previous, { maximizedId: null })
-            if (previous.immersive) return Object.assign({}, previous, { immersive: false })
-            return previous
-          })
+          if (maximizedId) {
+            setLayout(previous => (previous ? Object.assign({}, previous, { maximizedId: null }) : previous))
+            return
+          }
+          setBoard(previous => (previous ? Object.assign({}, previous, { immersive: false }) : previous))
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-      }, [maximizedId, immersive])
+      }, [maximizedId, immersive, setLayout])
+
+      const selectTab = useCallback(id => {
+        setBoard(previous => (previous && previous.activeTabId !== id
+          ? Object.assign({}, previous, { activeTabId: id })
+          : previous))
+        setDraft(null)
+        setPickingId(null)
+        setWorkspaceFor(null)
+      }, [])
+
+      const addTab = useCallback(() => {
+        let snapshot = null
+        try {
+          snapshot = sessions.list.getSnapshot()
+        } catch (_unavailable) {
+          snapshot = null
+        }
+        const tab = makeTab(defaultPanes(snapshot), null, '')
+        setBoard(previous => ({
+          tabs: previous ? previous.tabs.concat([tab]) : [tab],
+          activeTabId: tab.id,
+          immersive: previous ? previous.immersive === true : false,
+        }))
+        setDraft(null)
+        setPickingId(null)
+        setWorkspaceFor(null)
+      }, [sessions])
+
+      const closeTab = useCallback(id => {
+        setBoard(previous => {
+          if (!previous || previous.tabs.length <= 1) return previous
+          const index = previous.tabs.findIndex(tab => tab.id === id)
+          if (index < 0) return previous
+          const tabs = previous.tabs.filter(tab => tab.id !== id)
+          const activeTabId = previous.activeTabId === id
+            ? tabs[Math.max(0, index - 1)].id
+            : previous.activeTabId
+          return Object.assign({}, previous, { tabs, activeTabId })
+        })
+        setDraft(null)
+        setPickingId(null)
+        setWorkspaceFor(null)
+      }, [])
+
+      const renameTab = useCallback((id, title) => {
+        const nextTitle = typeof title === 'string' ? title.trim().slice(0, 60) : ''
+        setBoard(previous => (previous
+          ? Object.assign({}, previous, {
+            tabs: previous.tabs.map(tab => (tab.id === id
+              ? Object.assign({}, tab, { title: nextTitle })
+              : tab)),
+          })
+          : previous))
+      }, [])
 
       const addPane = useCallback(() => {
         const id = nextPaneId()
@@ -1414,7 +1691,7 @@ window.__ModuleLoader__.load({
 
       /** Fill the whole window with the panel; the grid itself is untouched. */
       const toggleImmersive = useCallback(() => {
-        setLayout(previous => (previous
+        setBoard(previous => (previous
           ? Object.assign({}, previous, { immersive: previous.immersive !== true })
           : previous))
       }, [])
@@ -1687,6 +1964,25 @@ window.__ModuleLoader__.load({
         })
 
         body = h(React.Fragment, null,
+          h('div', { style: styles.tabBar, role: 'tablist', 'data-tab-bar': '' },
+            board.tabs.map(tab => h(TabButton, {
+              key: tab.id,
+              tab,
+              active: tab.id === board.activeTabId,
+              canClose: board.tabs.length > 1,
+              useSessions,
+              t,
+              onSelect: selectTab,
+              onClose: closeTab,
+              onRename: renameTab,
+            })),
+            h('button', {
+              type: 'button',
+              style: styles.tabAdd,
+              title: t('newTab'),
+              'aria-label': t('newTab'),
+              onClick: addTab,
+            }, '+')),
           h('div', { style: styles.toolbar },
             h('span', { style: styles.toolbarTitle }, t('panelLabel')),
             h('span', { style: styles.toolbarMeta, title: 'dsh-multi-session ' + VERSION }, 'v' + VERSION),
