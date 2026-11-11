@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.10.0'
+    const VERSION = '0.11.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -17,14 +17,31 @@ window.__ModuleLoader__.load({
     /** Guard against a corrupted stored layout; the UI itself has no cap. */
     const STORED_PANE_LIMIT = 32
     const STORED_TAB_LIMIT = 24
-    /** Thickness of the draggable border between two tiles, in CSS pixels. */
-    const SPLITTER = 6
-    /** Smallest tile the user can drag down to, in CSS pixels. */
-    const MIN_PANE_W = 200
-    const MIN_PANE_H = 140
-    /** Breathing room around the tiled area. */
-    const PAD = 6
     const REF_SOURCE = 'multisessionPane'
+    /** Dismissal flag for the one-time hint strip. */
+    const HINT_KEY = 'dsh.multi-session.hint.v1'
+
+    /**
+     * Two densities, one structure: `comfortable` trades a little content area
+     * for bigger hit targets. Every size lives here so the toggle cannot leave
+     * half the panel at the old scale.
+     */
+    const METRICS = {
+      compact: {
+        pad: 6, splitter: 6, toolbarPad: '6px 8px', toolbarGap: 8,
+        headerPad: '3px 5px 3px 8px', headerGap: 4, icon: 24, iconBox: 22,
+        tabPad: '5px 10px', tabFont: 12.5, titleFont: 12.5, radius: 10,
+        minW: 200, minH: 140,
+      },
+      comfortable: {
+        pad: 10, splitter: 10, toolbarPad: '10px 12px', toolbarGap: 10,
+        headerPad: '7px 8px 7px 12px', headerGap: 6, icon: 30, iconBox: 28,
+        tabPad: '8px 12px', tabFont: 13, titleFont: 13, radius: 12,
+        minW: 230, minH: 160,
+      },
+    }
+    const DensityContext = React.createContext(METRICS.compact)
+    const useMetrics = () => React.useContext(DensityContext)
 
     const ZH = {
       panelLabel: '多会话',
@@ -82,6 +99,12 @@ window.__ModuleLoader__.load({
       tabTitlePlaceholder: '标签名称',
       openInMain: '在主面板打开',
       movePane: '拖动标题栏到另一个格子可交换两者的会话',
+      densityCompact: '紧凑密度',
+      densityComfortable: '舒适密度',
+      densityHint: '切换格子的间距与按钮尺寸',
+      hintText: '拖分隔条调大小 · 拖标题栏交换会话 · 标题栏的箭头在主面板打开',
+      hintDismiss: '知道了',
+      hintShow: '操作提示',
     }
 
     const EN = {
@@ -140,6 +163,12 @@ window.__ModuleLoader__.load({
       tabTitlePlaceholder: 'Tab name',
       openInMain: 'Open in main view',
       movePane: 'Drag the title bar onto another tile to swap their sessions',
+      densityCompact: 'Compact density',
+      densityComfortable: 'Comfortable density',
+      densityHint: 'Switch the spacing and the size of the pane buttons',
+      hintText: 'Drag a divider to resize · drag a title bar to swap sessions · the arrow opens the pane in the main view',
+      hintDismiss: 'Got it',
+      hintShow: 'Tips',
     }
 
     const styles = {
@@ -177,6 +206,7 @@ window.__ModuleLoader__.load({
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
       tab: {
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
@@ -184,18 +214,30 @@ window.__ModuleLoader__.load({
         flex: '0 0 auto',
         padding: '5px 8px',
         borderRadius: '8px 8px 0 0',
-        border: '1px solid transparent',
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: 'transparent',
         background: 'transparent',
         color: 'var(--dsw-alias-label-secondary)',
-        font: 'inherit',
+        fontFamily: 'inherit',
         fontSize: 12.5,
         cursor: 'pointer',
+        transition: 'background 120ms ease, color 120ms ease',
       },
       tabActive: {
         background: 'var(--dsw-alias-bg-l1)',
         borderColor: 'var(--dsw-alias-border-l1)',
         color: 'var(--dsw-alias-label-primary)',
         fontWeight: 600,
+      },
+      tabUnderline: {
+        position: 'absolute',
+        left: 8,
+        right: 8,
+        bottom: 0,
+        height: 2,
+        borderRadius: 1,
+        background: 'var(--dsw-alias-state-success-primary)',
       },
       tabTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 },
       tabDot: {
@@ -253,7 +295,7 @@ window.__ModuleLoader__.load({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        padding: PAD,
+        padding: METRICS.compact.pad,
         boxSizing: 'border-box',
         overflow: 'hidden',
       },
@@ -261,7 +303,7 @@ window.__ModuleLoader__.load({
         flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
-        padding: PAD,
+        padding: METRICS.compact.pad,
         boxSizing: 'border-box',
         overflow: 'hidden',
       },
@@ -274,22 +316,27 @@ window.__ModuleLoader__.load({
         minWidth: 0,
       },
       splitterH: {
+        position: 'relative',
         flex: '0 0 auto',
-        height: SPLITTER,
+        height: METRICS.compact.splitter,
         cursor: 'row-resize',
         touchAction: 'none',
-        borderRadius: 3,
-        background: 'var(--dsw-alias-border-l1)',
-        opacity: 0.6,
+        background: 'transparent',
       },
       splitterV: {
+        position: 'relative',
         flex: '0 0 auto',
-        width: SPLITTER,
+        width: METRICS.compact.splitter,
         cursor: 'col-resize',
         touchAction: 'none',
+        background: 'transparent',
+      },
+      splitterLine: {
+        position: 'absolute',
         borderRadius: 3,
         background: 'var(--dsw-alias-border-l1)',
-        opacity: 0.6,
+        opacity: 0.55,
+        transition: 'background 120ms ease, opacity 120ms ease',
       },
       pane: {
         position: 'relative',
@@ -311,6 +358,48 @@ window.__ModuleLoader__.load({
         flex: '0 0 auto',
         padding: '3px 5px 3px 8px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
+        transition: 'background 120ms ease',
+      },
+      paneHeaderActive: { background: 'var(--dsw-alias-bg-base)' },
+      gripper: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: '0 0 auto',
+        color: 'var(--dsw-alias-label-tertiary)',
+        cursor: 'grab',
+      },
+      hintBar: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flex: '0 0 auto',
+        padding: '6px 10px',
+        borderBottom: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-interactive-bg-hover)',
+      },
+      hintText: {
+        flex: '1 1 auto',
+        minWidth: 0,
+        fontSize: 11.5,
+        lineHeight: 1.5,
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      tooltip: {
+        position: 'absolute',
+        top: 'calc(100% + 6px)',
+        right: 0,
+        zIndex: 70,
+        padding: '4px 8px',
+        borderRadius: 6,
+        border: '1px solid var(--dsw-alias-border-l2)',
+        background: 'var(--dsw-alias-bg-overlay)',
+        boxShadow: '0 6px 18px rgba(0, 0, 0, 0.24)',
+        color: 'var(--dsw-alias-label-secondary)',
+        fontSize: 11.5,
+        lineHeight: 1.4,
+        whiteSpace: 'nowrap',
+        pointerEvents: 'none',
       },
       minimizedBar: {
         flex: '0 0 auto',
@@ -634,6 +723,24 @@ window.__ModuleLoader__.load({
       return h(Icon, { size: 12 }, h('path', { d: 'M4.5 6.5L8 10l3.5-3.5' }))
     }
 
+    /* Two columns of three dots: the conventional "drag me" affordance. */
+    function IconGrip() {
+      const dots = []
+      for (let row = 0; row < 3; row += 1) {
+        for (let col = 0; col < 2; col += 1) {
+          dots.push(h('circle', {
+            key: row + '-' + col,
+            cx: 6 + col * 4,
+            cy: 4 + row * 4,
+            r: 1.15,
+            fill: 'currentColor',
+            stroke: 'none',
+          }))
+        }
+      }
+      return h(Icon, { size: 16 }, dots)
+    }
+
     function IconSplit({ size }) {
       return h(Icon, { size: size || 22 },
         h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2 }),
@@ -781,12 +888,22 @@ window.__ModuleLoader__.load({
         }
         if (tabs.length === 0) return null
         const activeTabId = tabs.some(tab => tab.id === value.activeTabId) ? value.activeTabId : tabs[0].id
-        return { tabs, activeTabId, immersive: value.immersive === true }
+        return {
+          tabs,
+          activeTabId,
+          immersive: value.immersive === true,
+          density: value.density === 'comfortable' ? 'comfortable' : 'compact',
+        }
       }
-      if (typeof value.version !== 'number' || value.version < 1 || value.version > 5) return null
+      if (typeof value.version !== 'number' || value.version < 1 || value.version > 6) return null
       const tab = normalizeTab(value)
       if (!tab) return null
-      return { tabs: [tab], activeTabId: tab.id, immersive: value.immersive === true }
+      return {
+        tabs: [tab],
+        activeTabId: tab.id,
+        immersive: value.immersive === true,
+        density: value.density === 'comfortable' ? 'comfortable' : 'compact',
+      }
     }
 
     function loadBoard() {
@@ -802,9 +919,10 @@ window.__ModuleLoader__.load({
     function saveBoard(board) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 6,
+          version: 7,
           activeTabId: board.activeTabId,
           immersive: board.immersive === true,
+          density: board.density === 'comfortable' ? 'comfortable' : 'compact',
           tabs: board.tabs.map(tab => ({
             id: tab.id,
             title: tab.title,
@@ -899,11 +1017,15 @@ window.__ModuleLoader__.load({
     /* ------------------------------------------------------------ chrome UI */
 
     function IconButton({ label, onClick, disabled, children }) {
+      const m = useMetrics()
       const [hover, setHover] = useState(false)
+      const [focused, setFocused] = useState(false)
       const style = Object.assign(
         {},
         styles.iconButton,
+        { position: 'relative', width: m.icon, height: m.icon },
         hover && !disabled ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : null,
+        focused ? { boxShadow: '0 0 0 2px var(--dsw-alias-border-l2)' } : null,
         disabled ? styles.disabled : null,
       )
       return h('button', {
@@ -914,8 +1036,36 @@ window.__ModuleLoader__.load({
         onClick: disabled ? undefined : onClick,
         onMouseEnter: () => setHover(true),
         onMouseLeave: () => setHover(false),
+        onFocus: () => setFocused(true),
+        onBlur: () => setFocused(false),
         style,
-      }, children)
+      }, children, hover ? h('span', { style: styles.tooltip, role: 'tooltip' }, label) : null)
+    }
+
+    /**
+     * The divider itself is hit-area only; the visible hairline is a child, so
+     * hovering can light it up without changing the layout.
+     */
+    function Splitter({ axis, title, onPointerDown }) {
+      const m = useMetrics()
+      const [hover, setHover] = useState(false)
+      const size = axis === 'row' ? { height: m.splitter } : { width: m.splitter }
+      const line = axis === 'row'
+        ? { left: 0, right: 0, top: 2, bottom: 2 }
+        : { top: 0, bottom: 0, left: 2, right: 2 }
+      return h('div', {
+        role: 'separator',
+        'aria-orientation': axis === 'row' ? 'horizontal' : 'vertical',
+        title,
+        style: Object.assign({}, axis === 'row' ? styles.splitterH : styles.splitterV, size),
+        onPointerEnter: () => setHover(true),
+        onPointerLeave: () => setHover(false),
+        onPointerDown,
+      }, h('span', {
+        style: Object.assign({}, styles.splitterLine, line, hover
+          ? { background: 'var(--dsw-alias-state-success-primary)', opacity: 1 }
+          : null),
+      }))
     }
 
     function EmptyState({ t, onPick, onCreate, creating, error }) {
@@ -1104,7 +1254,8 @@ window.__ModuleLoader__.load({
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
+    function PaneHeader({ pane, maximized, active, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
+      const m = useMetrics()
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
         ? row.displayTitle
@@ -1114,12 +1265,18 @@ window.__ModuleLoader__.load({
       const running = !!(row && row.running)
       const [hover, setHover] = useState(false)
       return h('div', {
-        style: styles.paneHeader,
+        style: Object.assign(
+          {},
+          styles.paneHeader,
+          { padding: m.headerPad, gap: m.headerGap, cursor: 'grab' },
+          active ? styles.paneHeaderActive : null,
+        ),
         draggable: 'true',
         title: t('movePane'),
         onDragStart,
         onDragEnd,
       },
+        h('span', { style: styles.gripper, 'aria-hidden': 'true' }, h(IconGrip)),
         h('span', {
           style: Object.assign({}, styles.dot, {
             background: running
@@ -1130,7 +1287,7 @@ window.__ModuleLoader__.load({
         }),
         h('button', {
           type: 'button',
-          style: Object.assign({}, styles.titleButton, hover ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : null),
+          style: Object.assign({}, styles.titleButton, { fontSize: m.titleFont }, hover ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : null),
           onClick: onPick,
           title: t('switchSession'),
           onMouseEnter: () => setHover(true),
@@ -1400,14 +1557,16 @@ window.__ModuleLoader__.load({
      */
     const PaneShell = React.memo(function PaneShell(props) {
       const {
-        pane, maximized, canClose, canOpenMain, picking, sessions, SessionProvider, renderSlot, useSessions, t,
+        pane, maximized, active, canClose, canOpenMain, picking, sessions, SessionProvider, renderSlot, useSessions, t,
         creating, createError, onOpenPicker, onToggleMax, onMinimize, onOpenMain, onClose, onAssign, onClear, onCreate, onDismissPicker,
         onDragStart, onDragEnd,
       } = props
-      return h('div', { style: styles.pane },
+      const m = useMetrics()
+      return h('div', { style: Object.assign({}, styles.pane, { borderRadius: m.radius }) },
         h(PaneHeader, {
           pane,
           maximized,
+          active,
           canClose,
           canOpenMain,
           useSessions,
@@ -1450,8 +1609,10 @@ window.__ModuleLoader__.load({
 
     /** One browser tab: title follows its first bound session until renamed. */
     function TabButton({ tab, active, canClose, useSessions, t, onSelect, onClose, onRename }) {
+      const m = useMetrics()
       const [editing, setEditing] = useState(false)
       const [value, setValue] = useState('')
+      const [hover, setHover] = useState(false)
       const label = useSessions(state => {
         if (tab.title) return tab.title
         for (const pane of tab.panes) {
@@ -1478,7 +1639,15 @@ window.__ModuleLoader__.load({
         'data-tab-id': tab.id,
         'aria-selected': active ? 'true' : 'false',
         title: t('renameTab'),
-        style: active ? Object.assign({}, styles.tab, styles.tabActive) : styles.tab,
+        style: Object.assign(
+          {},
+          styles.tab,
+          { padding: m.tabPad, fontSize: m.tabFont },
+          hover ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : null,
+          active ? styles.tabActive : null,
+        ),
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false),
         onClick: () => onSelect(tab.id),
         onDoubleClick: event => {
           event.stopPropagation()
@@ -1516,7 +1685,9 @@ window.__ModuleLoader__.load({
       canClose
         ? h('button', {
           type: 'button',
-          style: styles.tabClose,
+          style: hover || active
+            ? styles.tabClose
+            : Object.assign({}, styles.tabClose, { opacity: 0, pointerEvents: 'none' }),
           'aria-label': t('closeTab'),
           title: t('closeTab'),
           onClick: event => {
@@ -1524,7 +1695,8 @@ window.__ModuleLoader__.load({
             onClose(tab.id)
           },
         }, '×')
-        : null)
+        : null,
+      active ? h('span', { style: styles.tabUnderline, 'aria-hidden': 'true' }) : null)
     }
 
     function MultiSessionPage(props) {
@@ -1550,6 +1722,32 @@ window.__ModuleLoader__.load({
       const workspaces = readWorkspaces(state => state)
       const layout = board ? (board.tabs.find(tab => tab.id === board.activeTabId) || board.tabs[0]) : null
       const immersive = board ? board.immersive === true : false
+      /* Density is a board-level preference: it survives tab switches and reloads. */
+      const density = board && board.density === 'comfortable' ? 'comfortable' : 'compact'
+      const metrics = METRICS[density]
+      const [hintOpen, setHintOpen] = useState(() => {
+        try {
+          return window.localStorage.getItem(HINT_KEY) !== '1'
+        } catch (_unavailable) {
+          return true
+        }
+      })
+      const [activePaneId, setActivePaneId] = useState(null)
+      const dismissHint = useCallback(() => {
+        setHintOpen(false)
+        try {
+          window.localStorage.setItem(HINT_KEY, '1')
+        } catch (_unavailable) {
+          /* Private mode: the tip simply comes back next time. */
+        }
+      }, [])
+      const toggleDensity = useCallback(() => {
+        setBoard(previous => (previous
+          ? Object.assign({}, previous, {
+            density: previous.density === 'comfortable' ? 'compact' : 'comfortable',
+          })
+          : previous))
+      }, [])
       /* Layout edits always land on the active tab, so every pane handler below
          keeps working with a single tab-shaped value. */
       const setLayout = useCallback(updater => {
@@ -1577,7 +1775,7 @@ window.__ModuleLoader__.load({
           snapshot = null
         }
         const tab = makeTab(defaultPanes(snapshot), null, '')
-        setBoard({ tabs: [tab], activeTabId: tab.id, immersive: false })
+        setBoard({ tabs: [tab], activeTabId: tab.id, immersive: false, density: 'compact' })
       }, [board, phase, sessions])
 
       useEffect(() => {
@@ -1625,6 +1823,7 @@ window.__ModuleLoader__.load({
           tabs: previous ? previous.tabs.concat([tab]) : [tab],
           activeTabId: tab.id,
           immersive: previous ? previous.immersive === true : false,
+          density: previous && previous.density === 'comfortable' ? 'comfortable' : 'compact',
         }))
         setDraft(null)
         setPickingId(null)
@@ -1789,18 +1988,18 @@ window.__ModuleLoader__.load({
           startA = baseRows[rowPair[0]] || 1
           startB = baseRows[rowPair[1]] || 1
           const sum = baseRows.reduce((total, weight) => total + (weight > 0 ? weight : 1), 0)
-          const available = Math.max(0, box.height - PAD * 2 - SPLITTER * Math.max(0, grid.length - 1))
+          const available = Math.max(0, box.height - metrics.pad * 2 - metrics.splitter * Math.max(0, grid.length - 1))
           pixelsPerWeight = sum > 0 ? available / sum : 0
-          minPixels = MIN_PANE_H
+          minPixels = metrics.minH
         } else {
           const entry = grid.find(item => item.index === index)
           if (!entry || entry.ids.length < 2) return
           pairKey = [entry.ids[0], entry.ids[1]]
           startA = baseCols[pairKey[0]] || 1
           startB = baseCols[pairKey[1]] || 1
-          const available = Math.max(0, box.width - PAD * 2 - SPLITTER)
+          const available = Math.max(0, box.width - metrics.pad * 2 - metrics.splitter)
           pixelsPerWeight = startA + startB > 0 ? available / (startA + startB) : 0
-          minPixels = MIN_PANE_W
+          minPixels = metrics.minW
         }
         if (!(pixelsPerWeight > 0)) return
 
@@ -1850,7 +2049,7 @@ window.__ModuleLoader__.load({
         window.addEventListener('pointerup', finish)
         window.addEventListener('pointercancel', finish)
         if (event.cancelable) event.preventDefault()
-      }, [draft, layout])
+      }, [draft, layout, metrics])
 
       /** Put every divider back to an even split. */
       const autoArrange = useCallback(() => {
@@ -1982,6 +2181,7 @@ window.__ModuleLoader__.load({
           return h('div', {
             key: pane.id,
             'data-pane-id': pane.id,
+            onPointerDown: () => setActivePaneId(current => (current === pane.id ? current : pane.id)),
             onDragOver: event => {
               const types = event.dataTransfer && event.dataTransfer.types
               const carriesPane = types && Array.prototype.indexOf.call(types, 'text/x-multisession-pane') >= 0
@@ -1997,12 +2197,13 @@ window.__ModuleLoader__.load({
               isMax
                 /* The maximised tile covers the host instead of being re-parented, so the
                    conversation (scroll position, stream) survives the toggle. */
-                ? { position: 'absolute', top: PAD, left: PAD, right: PAD, bottom: PAD, zIndex: 20, visibility: 'visible' }
+                ? { position: 'absolute', top: metrics.pad, left: metrics.pad, right: metrics.pad, bottom: metrics.pad, zIndex: 20, visibility: 'visible' }
                 : { flexGrow: colWeights[pane.id] || 1, flexBasis: 0 },
             ),
           }, h(PaneShell, {
             pane,
             maximized: isMax,
+            active: activePaneId === pane.id,
             canClose: panes.length > 1,
             canOpenMain: canOpenMain && !!pane.sessionId,
             picking: pickingId === pane.id,
@@ -2038,9 +2239,9 @@ window.__ModuleLoader__.load({
             const pane = byId[id]
             if (!pane) return
             if (colIndex > 0) {
-              cells.push(h('div', {
+              cells.push(h(Splitter, {
                 key: 'divider-v-' + id,
-                style: styles.splitterV,
+                axis: 'col',
                 title: t('dragHint'),
                 onPointerDown: event => beginSplitDrag(event, 'col', entry.index),
               }))
@@ -2052,9 +2253,9 @@ window.__ModuleLoader__.load({
             style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[entry.index] || 1 }),
           }, cells))
           if (position < grid.length - 1) {
-            view.push(h('div', {
+            view.push(h(Splitter, {
               key: 'divider-h-' + entry.index,
-              style: styles.splitterH,
+              axis: 'row',
               title: t('dragHint'),
               onPointerDown: event => beginSplitDrag(event, 'row', entry.index),
             }))
@@ -2081,11 +2282,26 @@ window.__ModuleLoader__.load({
               'aria-label': t('newTab'),
               onClick: addTab,
             }, '+')),
-          h('div', { style: styles.toolbar },
+          h('div', { style: Object.assign({}, styles.toolbar, { padding: metrics.toolbarPad, gap: metrics.toolbarGap }) },
             h('span', { style: styles.toolbarTitle }, t('panelLabel')),
             h('span', { style: styles.toolbarMeta, title: 'dsh-multi-session ' + VERSION }, 'v' + VERSION),
             h('span', { style: styles.toolbarMeta }, panes.length + ' ' + t('paneCount')),
             h('span', { style: styles.spacer }),
+            h('button', {
+              type: 'button',
+              style: styles.ghostButton,
+              title: t('densityHint'),
+              'aria-label': density === 'comfortable' ? t('densityCompact') : t('densityComfortable'),
+              'aria-pressed': density === 'comfortable' ? 'true' : 'false',
+              onClick: toggleDensity,
+            }, density === 'comfortable' ? t('densityCompact') : t('densityComfortable')),
+            h('button', {
+              type: 'button',
+              style: styles.iconGhost,
+              title: t('hintShow'),
+              'aria-label': t('hintShow'),
+              onClick: () => setHintOpen(true),
+            }, '?'),
             h('button', {
               type: 'button',
               style: styles.iconGhost,
@@ -2106,6 +2322,13 @@ window.__ModuleLoader__.load({
               title: t('addPane'),
               onClick: addPane,
             }, '+ ' + t('addPane'))),
+          hintOpen && h('div', { style: styles.hintBar, 'data-hint-bar': '' },
+            h('span', { style: styles.hintText }, t('hintText')),
+            h('button', {
+              type: 'button',
+              style: styles.ghostButton,
+              onClick: dismissHint,
+            }, t('hintDismiss'))),
           minimizedPanes.length > 0 && h('div', {
             style: styles.minimizedBar,
             'data-minimized-bar': '',
@@ -2122,7 +2345,7 @@ window.__ModuleLoader__.load({
             }))),
           h('div', {
             ref: hostRef,
-            style: styles.host,
+            style: Object.assign({}, styles.host, { padding: metrics.pad }),
             'data-multisession-host': '',
           },
             h('div', {
@@ -2140,21 +2363,22 @@ window.__ModuleLoader__.load({
               : view)))
       }
 
-      return h('div', {
-        ref: rootRef,
-        style: immersive ? Object.assign({}, styles.root, styles.immersive) : styles.root,
-        'data-immersive': immersive ? '' : undefined,
-      },
-        body,
-        workspaceFor
-          ? h(WorkspacePicker, {
-            t,
-            workspaces,
-            busy: creatingPane !== null,
-            onPick: workspaceId => createSession(workspaceFor, workspaceId),
-            onCancel: () => setWorkspaceFor(null),
-          })
-          : null)
+      return h(DensityContext.Provider, { value: metrics },
+        h('div', {
+          ref: rootRef,
+          style: immersive ? Object.assign({}, styles.root, styles.immersive) : styles.root,
+          'data-immersive': immersive ? '' : undefined,
+        },
+          body,
+          workspaceFor
+            ? h(WorkspacePicker, {
+              t,
+              workspaces,
+              busy: creatingPane !== null,
+              onPick: workspaceId => createSession(workspaceFor, workspaceId),
+              onCancel: () => setWorkspaceFor(null),
+            })
+            : null))
     }
 
     /* --------------------------------------------------------------- apply */
@@ -2191,3 +2415,4 @@ window.__ModuleLoader__.load({
     return { inject, apply }
   },
 })
+

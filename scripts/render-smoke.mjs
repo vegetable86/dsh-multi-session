@@ -1,4 +1,4 @@
-﻿import { readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import vm from 'node:vm'
@@ -370,7 +370,7 @@ checks.push([
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tiled.version === 6 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
+  tiled.version === 7 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
   'the split weights are persisted',
 ])
 
@@ -447,7 +447,7 @@ checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbour
 await sleep(260)
 const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  minimizedStore.version === 6 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
+  minimizedStore.version === 7 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
   'the collapsed flag is persisted',
 ])
 await click(chip)
@@ -544,7 +544,7 @@ checks.push([
 await act(async () => { await sleep(260) })
 const tabStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tabStore.version === 6 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
+  tabStore.version === 7 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
   'all tabs are persisted together',
 ])
 
@@ -617,6 +617,54 @@ checks.push([
   'dropping a pane header on another tile swaps their sessions',
 ])
 await act(async () => { swapRoot.unmount() })
+
+// v0.11 affordances: first-run hint bar, drag handle, instant tooltip and a
+// density switch that persists with the rest of the board.
+dom.window.localStorage.removeItem('dsh.multi-session.v1')
+dom.window.localStorage.removeItem('dsh.multi-session.hint.v1')
+const polishContainer = document.createElement('div')
+document.body.appendChild(polishContainer)
+const polishRoot = createRoot(polishContainer)
+await act(async () => { polishRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(polishContainer)
+
+const hintBar = polishContainer.querySelector('[data-hint-bar]')
+checks.push([!!hintBar, 'the first visit shows the interaction hints'])
+checks.push([
+  polishContainer.querySelectorAll('svg circle').length >= 6,
+  'every pane header carries a drag handle',
+])
+const dismissButton = hintBar
+  ? Array.from(hintBar.querySelectorAll('button')).find(button => button.textContent === 'hintDismiss')
+  : null
+if (dismissButton) await click(dismissButton)
+checks.push([
+  !polishContainer.querySelector('[data-hint-bar]') &&
+    dom.window.localStorage.getItem('dsh.multi-session.hint.v1') === '1',
+  'dismissing the hints remembers the choice',
+])
+await click(polishContainer.querySelector('button[aria-label="hintShow"]'))
+checks.push([!!polishContainer.querySelector('[data-hint-bar]'), 'the tips button brings the hints back'])
+
+const densityButton = polishContainer.querySelector('button[aria-label="densityComfortable"]')
+checks.push([!!densityButton, 'the toolbar offers a density switch'])
+if (densityButton) await click(densityButton)
+await act(async () => { await sleep(260) })
+const denseStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  denseStore.version === 7 && denseStore.density === 'comfortable' &&
+    !!polishContainer.querySelector('button[aria-label="densityCompact"]'),
+  'density toggles and is stored with the board',
+])
+
+const minimizeButton = polishContainer.querySelector('button[aria-label="minimize"]')
+if (minimizeButton) {
+  await act(async () => {
+    minimizeButton.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }))
+  })
+}
+checks.push([!!polishContainer.querySelector('[role="tooltip"]'), 'hovering an icon shows a tooltip'])
+await act(async () => { polishRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {
