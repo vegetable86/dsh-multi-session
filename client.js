@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.9.0'
+    const VERSION = '0.10.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -80,6 +80,8 @@ window.__ModuleLoader__.load({
       closeTab: '关闭标签',
       renameTab: '双击重命名',
       tabTitlePlaceholder: '标签名称',
+      openInMain: '在主面板打开',
+      movePane: '拖动标题栏到另一个格子可交换两者的会话',
     }
 
     const EN = {
@@ -136,6 +138,8 @@ window.__ModuleLoader__.load({
       closeTab: 'Close tab',
       renameTab: 'Double-click to rename',
       tabTitlePlaceholder: 'Tab name',
+      openInMain: 'Open in main view',
+      movePane: 'Drag the title bar onto another tile to swap their sessions',
     }
 
     const styles = {
@@ -602,6 +606,13 @@ window.__ModuleLoader__.load({
 
     function IconMinimize() {
       return h(Icon, null, h('path', { d: 'M3.5 10.5h9' }))
+    }
+
+    function IconOpenMain() {
+      return h(Icon, null,
+        h('path', { d: 'M8 3.5h4.5V8' }),
+        h('path', { d: 'M12.2 3.8 7.4 8.6' }),
+        h('path', { d: 'M11.5 12.5H4.5V5.5' }))
     }
 
     function IconExpand() {
@@ -1093,7 +1104,7 @@ window.__ModuleLoader__.load({
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, canClose, useSessions, t, onPick, onToggleMax, onMinimize, onClose }) {
+    function PaneHeader({ pane, maximized, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
         ? row.displayTitle
@@ -1102,7 +1113,13 @@ window.__ModuleLoader__.load({
           : t('noSession')
       const running = !!(row && row.running)
       const [hover, setHover] = useState(false)
-      return h('div', { style: styles.paneHeader },
+      return h('div', {
+        style: styles.paneHeader,
+        draggable: 'true',
+        title: t('movePane'),
+        onDragStart,
+        onDragEnd,
+      },
         h('span', {
           style: Object.assign({}, styles.dot, {
             background: running
@@ -1122,6 +1139,7 @@ window.__ModuleLoader__.load({
           h('span', { style: styles.titleText }, title),
           h(IconChevron)),
         h('span', { style: styles.spacer }),
+        canOpenMain ? h(IconButton, { label: t('openInMain'), onClick: onOpenMain }, h(IconOpenMain)) : null,
         h(IconButton, { label: t('minimize'), onClick: onMinimize }, h(IconMinimize)),
         h(IconButton, { label: maximized ? t('restore') : t('maximize'), onClick: onToggleMax },
           maximized ? h(IconRestore) : h(IconMaximize)),
@@ -1380,21 +1398,27 @@ window.__ModuleLoader__.load({
      * the user drags a divider, so a drag only re-renders the tile wrappers and
      * never the conversation trees inside the panes.
      */
-    const PaneShell = React.memo(function PaneShell(props) {      const {
-        pane, maximized, canClose, picking, sessions, SessionProvider, renderSlot, useSessions, t,
-        creating, createError, onOpenPicker, onToggleMax, onMinimize, onClose, onAssign, onClear, onCreate, onDismissPicker,
+    const PaneShell = React.memo(function PaneShell(props) {
+      const {
+        pane, maximized, canClose, canOpenMain, picking, sessions, SessionProvider, renderSlot, useSessions, t,
+        creating, createError, onOpenPicker, onToggleMax, onMinimize, onOpenMain, onClose, onAssign, onClear, onCreate, onDismissPicker,
+        onDragStart, onDragEnd,
       } = props
       return h('div', { style: styles.pane },
         h(PaneHeader, {
           pane,
           maximized,
           canClose,
+          canOpenMain,
           useSessions,
           t,
           onPick: () => onOpenPicker(pane.id),
           onToggleMax: () => onToggleMax(pane.id),
           onMinimize: () => onMinimize(pane.id),
+          onOpenMain: () => onOpenMain(pane.id),
           onClose: () => onClose(pane.id),
+          onDragStart: event => onDragStart(pane.id, event),
+          onDragEnd,
         }),
         h('div', { style: styles.body },
           h(PaneBoundary, {
@@ -1508,16 +1532,18 @@ window.__ModuleLoader__.load({
     }
 
     function MultiSessionView(props) {
-      const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, t } = props
+      const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, uiWorkspace, t } = props
       const [board, setBoard] = useState(loadBoard)
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
       const [workspaceFor, setWorkspaceFor] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
       const [draft, setDraft] = useState(null)
+      const [dragOverId, setDragOverId] = useState(null)
       const rootRef = useRef(null)
       const hostRef = useRef(null)
       const dragRef = useRef(null)
+      const dragPaneRef = useRef(null)
       const phase = useSessions(state => state.phase)
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
       const readWorkspaces = typeof useWorkspaces === 'function' ? useWorkspaces : selector => selector(null)
@@ -1887,6 +1913,64 @@ window.__ModuleLoader__.load({
         setWorkspaceFor(paneId)
       }, [createSession, creatingPane, workspaces])
 
+      /** Swap what two tiles show; the tiling itself does not move. */
+      const swapSessions = useCallback((leftId, rightId) => {
+        setLayout(previous => {
+          if (!previous) return previous
+          const left = previous.panes.find(pane => pane.id === leftId)
+          const right = previous.panes.find(pane => pane.id === rightId)
+          if (!left || !right) return previous
+          return Object.assign({}, previous, {
+            panes: previous.panes.map(pane => {
+              if (pane.id === leftId) return Object.assign({}, pane, { sessionId: right.sessionId })
+              if (pane.id === rightId) return Object.assign({}, pane, { sessionId: left.sessionId })
+              return pane
+            }),
+          })
+        })
+      }, [setLayout])
+
+      const startPaneDrag = useCallback((id, event) => {
+        dragPaneRef.current = id
+        try {
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData('text/x-multisession-pane', id)
+        } catch (_unavailable) {
+          /* Some environments expose a read-only dataTransfer; the ref still works. */
+        }
+      }, [])
+
+      const endPaneDrag = useCallback(() => {
+        dragPaneRef.current = null
+        setDragOverId(null)
+      }, [])
+
+      const dropOnPane = useCallback((targetId, event) => {
+        event.preventDefault()
+        let sourceId = null
+        try {
+          sourceId = event.dataTransfer.getData('text/x-multisession-pane')
+        } catch (_unavailable) {
+          sourceId = null
+        }
+        if (!sourceId) sourceId = dragPaneRef.current
+        dragPaneRef.current = null
+        setDragOverId(null)
+        if (sourceId && sourceId !== targetId) swapSessions(sourceId, targetId)
+      }, [swapSessions])
+
+      const canOpenMain = !!uiWorkspace && typeof uiWorkspace.openSession === 'function'
+      const openInMain = useCallback(id => {
+        if (!canOpenMain || !layout) return
+        const pane = layout.panes.find(item => item.id === id)
+        if (!pane || !pane.sessionId) return
+        try {
+          uiWorkspace.openSession(pane.sessionId)
+        } catch (error) {
+          console.error('[multi-session] could not open the session in the main view', error)
+        }
+      }, [canOpenMain, layout, uiWorkspace])
+
       let body = h('div', { style: styles.center }, h('div', { style: styles.emptyHint }, t('loading')))
       if (layout !== null) {
         const panes = layout.panes
@@ -1898,8 +1982,18 @@ window.__ModuleLoader__.load({
           return h('div', {
             key: pane.id,
             'data-pane-id': pane.id,
+            onDragOver: event => {
+              const types = event.dataTransfer && event.dataTransfer.types
+              const carriesPane = types && Array.prototype.indexOf.call(types, 'text/x-multisession-pane') >= 0
+              if (!carriesPane && !dragPaneRef.current) return
+              event.preventDefault()
+              if (dragOverId !== pane.id) setDragOverId(pane.id)
+            },
+            onDragLeave: () => setDragOverId(current => (current === pane.id ? null : current)),
+            onDrop: event => dropOnPane(pane.id, event),
             style: Object.assign(
               { display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 },
+              dragOverId === pane.id ? { outline: '2px dashed var(--dsw-alias-state-success-primary)', outlineOffset: -2 } : null,
               isMax
                 /* The maximised tile covers the host instead of being re-parented, so the
                    conversation (scroll position, stream) survives the toggle. */
@@ -1909,24 +2003,28 @@ window.__ModuleLoader__.load({
           }, h(PaneShell, {
             pane,
             maximized: isMax,
-          canClose: panes.length > 1,
-          picking: pickingId === pane.id,
-          sessions,
-          SessionProvider,
-          renderSlot,
-          useSessions,
-          t,
-          creating: creatingPane === pane.id,
-          createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
-          onOpenPicker: togglePicker,
-          onToggleMax: toggleMaximize,
-          onMinimize: toggleMinimize,
-          onClose: closePane,
-          onAssign: assignSession,
-          onClear: clearPane,
-          onCreate: requestCreate,
-          onDismissPicker: dismissPicker,
-        }))
+            canClose: panes.length > 1,
+            canOpenMain: canOpenMain && !!pane.sessionId,
+            picking: pickingId === pane.id,
+            sessions,
+            SessionProvider,
+            renderSlot,
+            useSessions,
+            t,
+            creating: creatingPane === pane.id,
+            createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
+            onOpenPicker: togglePicker,
+            onToggleMax: toggleMaximize,
+            onMinimize: toggleMinimize,
+            onOpenMain: openInMain,
+            onClose: closePane,
+            onAssign: assignSession,
+            onClear: clearPane,
+            onCreate: requestCreate,
+            onDismissPicker: dismissPicker,
+            onDragStart: startPaneDrag,
+            onDragEnd: endPaneDrag,
+          }))
         }
 
         const minimizedPanes = panes.filter(pane => pane.minimized)
@@ -2061,7 +2159,7 @@ window.__ModuleLoader__.load({
 
     /* --------------------------------------------------------------- apply */
 
-    const inject = ['slots', 'locale', 'sessions']
+    const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
 
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'multi-session: dictionaries')
@@ -2072,7 +2170,7 @@ window.__ModuleLoader__.load({
         name: 'main',
         key: PANEL_ID,
         locale: NS,
-        inject: () => ({ sessions }),
+        inject: () => ({ sessions, uiWorkspace: ctx.uiWorkspace }),
         children: { [PANE_SLOT]: { kind: 'single', scope: 'session' } },
       }, MultiSessionPage))
 

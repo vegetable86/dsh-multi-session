@@ -275,4 +275,14 @@ MultiSessionPage                // main 槽位条目，root scope
 - 测试：`render-smoke` 新增「只渲染当前标签的格子」「切标签换整套布局」「`+` 增加标签」「所有标签一起持久化（v6）」「关闭标签后从标签条消失」「双击改名生效」。
 - 不做：标签拖拽排序、标签内独立的全屏状态、跨标签拖格子、标签数量上限的 UI 提示（超出存储上限时静默截断）。
 
+## 23. v0.10 在主面板打开与拖标题栏交换会话
+
+- 需求：多会话页不能只是展示区——某个格子的会话要能随时回到普通对话页细看；两个格子里的会话也要能对调，而不用各自重新选一遍。
+- 在主面板打开：每格标题栏在「最小化」左侧多一个箭头图标（`openInMain`），只有绑定了会话且宿主提供了 `uiWorkspace.openSession` 时才出现。点击时取当前布局里该格的 `sessionId`，交给 `uiWorkspace.openSession(...)`；宿主会走 `replaceMain(..., 'reveal')`，把主面板切到单个对话。插件不自己实现导航，也不改宿主的 selection 存储。
+- 拖拽交换：标题栏本身 `draggable`，`dragstart` 时把格子 id 写进 `dataTransfer` 的自定义类型 `text/x-multisession-pane`。拖到另一个格子上时该格显示虚线描边（`--dsw-alias-state-success-primary`）；松手后只交换两个 `pane.sessionId`，格子的位置、尺寸、权重都不变。拖拽源同时记在 `dragPaneRef` 里，作为 `dataTransfer` 不可用时的兜底。
+- 为什么不从左侧栏拖：`ui-sidebar` 的会话行没有暴露任何 drag 事件，插件也不允许去改别的插件的 DOM，所以第一版只在面板内部交换；「从侧栏拖入新会话」留作后续（需要宿主提供拖放扩展点）。
+- 测试：`render-smoke` 新增「绑定会话的格子出现 openInMain 按钮」「点击后把 sessionId 交给 openSession」「drop 到另一格后持久化里两格 sessionId 互换」；`smoke` 的客户端 inject 断言增加 `uiWorkspace`。
+- 不做：跨标签拖拽、从侧栏/外部拖入、拖拽排序格子本身（只交换会话）、多选批量操作。
+
+
 

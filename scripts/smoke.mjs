@@ -88,7 +88,7 @@ const mod = bundle.factory(p => {
   if (p === 'react') return React
   throw new Error('bundle must not require anything but react, got: ' + p)
 })
-assert(JSON.stringify(mod.inject) === JSON.stringify(['slots', 'locale', 'sessions']), 'client inject list is slots/locale/sessions')
+assert(JSON.stringify(mod.inject) === JSON.stringify(['slots', 'locale', 'sessions', 'uiWorkspace']), 'client inject list is slots/locale/sessions/uiWorkspace')
 mod.apply(ctx)
 
 const main = registrations.find(r => r.opts.name === 'main')

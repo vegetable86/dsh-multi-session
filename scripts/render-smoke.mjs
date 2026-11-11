@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+﻿import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import vm from 'node:vm'
@@ -129,9 +129,11 @@ const useSessions = selector => selector(state)
 
 const container = document.getElementById('root')
 const root_ = createRoot(container)
+const openedInMain = []
 const mainProps = {
   t: key => key,
   sessions: ctx.sessions,
+  uiWorkspace: { openSession: id => openedInMain.push(id) },
   useSessions,
   useWorkspaces: selector => selector(workspaces),
   SessionProvider: props => React.createElement('div', {
@@ -573,6 +575,49 @@ if (renameInput) {
 checks.push([renamed, 'double-clicking a tab renames it'])
 await act(async () => { tabRoot.unmount() })
 
+// Panes can hand a session back to the main view, and swap sessions by dragging.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 6,
+  activeTabId: 'sw1',
+  immersive: false,
+  tabs: [{
+    id: 'sw1',
+    title: '交换',
+    panes: [{ id: 'p1', sessionId: 'session-a' }, { id: 'p2', sessionId: 'session-b' }],
+    rows: [['p1', 'p2']],
+    rowWeights: [1],
+    colWeights: { p1: 1, p2: 1 },
+    maximizedId: null,
+  }],
+}))
+const swapContainer = document.createElement('div')
+document.body.appendChild(swapContainer)
+const swapRoot = createRoot(swapContainer)
+await act(async () => { swapRoot.render(React.createElement(main.comp, mainProps)) })
+stubHost(swapContainer)
+
+const mainViewButton = swapContainer.querySelector('[data-pane-id="p1"] button[aria-label="openInMain"]')
+checks.push([!!mainViewButton, 'a bound pane offers the open-in-main action'])
+if (mainViewButton) await click(mainViewButton)
+checks.push([openedInMain[0] === 'session-a', 'open in main hands the bound session to the workspace service'])
+
+const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+Object.defineProperty(dropEvent, 'dataTransfer', {
+  value: { types: ['text/x-multisession-pane'], getData: () => 'p1' },
+})
+await act(async () => {
+  swapContainer.querySelector('[data-pane-id="p2"]').dispatchEvent(dropEvent)
+})
+await act(async () => { await sleep(260) })
+const swapped = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+const swappedPanes = swapped.tabs[0].panes
+checks.push([
+  swappedPanes.find(pane => pane.id === 'p1').sessionId === 'session-b' &&
+    swappedPanes.find(pane => pane.id === 'p2').sessionId === 'session-a',
+  'dropping a pane header on another tile swaps their sessions',
+])
+await act(async () => { swapRoot.unmount() })
+
 let failed = false
 for (const [ok, label] of checks) {
   console.log((ok ? 'ok  -' : 'FAIL:') + ' ' + label)
@@ -580,3 +625,4 @@ for (const [ok, label] of checks) {
 }
 console.log(failed ? 'RENDER SMOKE FAILED' : 'RENDER SMOKE OK')
 if (failed) process.exitCode = 1
+
