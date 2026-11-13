@@ -1,15 +1,13 @@
 # Entry for https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
 #
 # Copy this file to data/plugins/vegetable86__dsh-multi-session.yml in a fork of
-# the catalog and open a pull request. The catalog requires the repo to be at
-# least one day old, so the earliest sensible submission date is 2026-11-07.
+# the catalog and open a pull request. The READMEs there are generated from
+# data/plugins/*.yml, so that one file is the whole submission.
 
 url: https://github.com/vegetable86/dsh-multi-session
 name: vegetable86/dsh-multi-session
 category: ui
 description:
-  en: 'Splits the main panel into any number of session panes, each rendering a full native conversation (transcript and composer) bound to a session; panes can be added, maximized and closed, new sessions can be created inside a pane, and the layout persists across restarts.'
-  zh: '把主面板切成任意数量的会话格子，每格都是完整的原生对话（消息流与输入框）；格子可增删、最大化、在格内直接新建会话，布局与会话绑定在重启后恢复。'
-# Optional: a GitHub-hosted raster tile (PNG/JPEG/WebP). Without it the market
-# falls back to the repository owner's avatar.
-# icon: https://raw.githubusercontent.com/vegetable86/dsh-multi-session/main/assets/icon-180.png
+  en: 'Tiling multi-session workspace for the DSH web UI: 1-4 panes whose splitters resize neighbouring tiles together, browser-style tabs that keep several tiling boards, drag-to-swap sessions, per-pane session pickers, and a workspace chooser when creating a session inside a pane.'
+  zh: 'DSH Web UI 的多会话平铺工作区：1–4 个格子，拖分隔条同时改变相邻格子的大小；浏览器式标签页可并存多套布局；拖标题栏交换会话；每格独立选会话；格内新建会话时先选工作区，全程不跳出面板。'
+icon: https://raw.githubusercontent.com/vegetable86/dsh-multi-session/main/icon.png

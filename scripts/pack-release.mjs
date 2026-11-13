@@ -26,7 +26,7 @@ const outDir = join(root, flag('out', 'dist/release'))
 rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 
-const files = ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg', 'README.md']
+const files = ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg', 'icon.png', 'README.md']
 for (const file of files) cpSync(join(root, file), join(outDir, file))
 mkdirSync(join(outDir, 'locale'), { recursive: true })
 for (const file of readdirSync(join(root, 'locale'))) {
@@ -44,6 +44,11 @@ const manifest = {
   keywords: source.keywords,
   publishConfig: source.publishConfig,
   dsh: source.dsh,
+  repository: source.repository,
+  homepage: source.homepage,
+  author: source.author,
+  license: source.license,
+  icon: source.icon,
 }
 writeFileSync(join(outDir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
 
