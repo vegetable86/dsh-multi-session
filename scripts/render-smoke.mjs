@@ -573,6 +573,29 @@ if (renameInput) {
   renamed = tabContainer.textContent.includes('改过的名字')
 }
 checks.push([renamed, 'double-clicking a tab renames it'])
+
+// Dragging a tab onto another one reorders the strip without switching tabs.
+const tabIdsBefore = Array.from(tabContainer.querySelectorAll('[data-tab-id]'))
+  .map(element => element.getAttribute('data-tab-id'))
+const draggedTab = tabIdsBefore[0]
+const targetTab = tabIdsBefore[tabIdsBefore.length - 1]
+const tabDragStart = new dom.window.Event('dragstart', { bubbles: true })
+Object.defineProperty(tabDragStart, 'dataTransfer', {
+  value: { effectAllowed: '', setData: () => {}, getData: () => draggedTab },
+})
+await act(async () => {
+  tabContainer.querySelector('[data-tab-id="' + draggedTab + '"]').dispatchEvent(tabDragStart)
+})
+await act(async () => {
+  tabContainer.querySelector('[data-tab-id="' + targetTab + '"]')
+    .dispatchEvent(new dom.window.Event('drop', { bubbles: true, cancelable: true }))
+})
+await act(async () => { await sleep(260) })
+const tabOrder = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1')).tabs.map(tab => tab.id)
+checks.push([
+  tabOrder.indexOf(draggedTab) > tabOrder.indexOf(targetTab),
+  'dragging a tab reorders the strip',
+])
 await act(async () => { tabRoot.unmount() })
 
 // Panes can hand a session back to the main view, and swap sessions by dragging.

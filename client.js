@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.11.0'
+    const VERSION = '0.12.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -102,7 +102,7 @@ window.__ModuleLoader__.load({
       densityCompact: '紧凑密度',
       densityComfortable: '舒适密度',
       densityHint: '切换格子的间距与按钮尺寸',
-      hintText: '拖分隔条调大小 · 拖标题栏交换会话 · 标题栏的箭头在主面板打开',
+      hintText: '拖分隔条调大小 · 拖标题栏交换会话 · 拖标签可排序 · 标题栏的箭头在主面板打开',
       hintDismiss: '知道了',
       hintShow: '操作提示',
     }
@@ -166,7 +166,7 @@ window.__ModuleLoader__.load({
       densityCompact: 'Compact density',
       densityComfortable: 'Comfortable density',
       densityHint: 'Switch the spacing and the size of the pane buttons',
-      hintText: 'Drag a divider to resize · drag a title bar to swap sessions · the arrow opens the pane in the main view',
+      hintText: 'Drag a divider to resize · drag a title bar to swap sessions · drag a tab to reorder · the arrow opens the pane in the main view',
       hintDismiss: 'Got it',
       hintShow: 'Tips',
     }
@@ -1608,11 +1608,12 @@ window.__ModuleLoader__.load({
     })
 
     /** One browser tab: title follows its first bound session until renamed. */
-    function TabButton({ tab, active, canClose, useSessions, t, onSelect, onClose, onRename }) {
+    function TabButton({ tab, active, canClose, dropSide, useSessions, t, onSelect, onClose, onRename, onDragStart, onDragOver, onDrop, onDragEnd }) {
       const m = useMetrics()
       const [editing, setEditing] = useState(false)
       const [value, setValue] = useState('')
       const [hover, setHover] = useState(false)
+      const [dragging, setDragging] = useState(false)
       const label = useSessions(state => {
         if (tab.title) return tab.title
         for (const pane of tab.panes) {
@@ -1639,15 +1640,46 @@ window.__ModuleLoader__.load({
         'data-tab-id': tab.id,
         'aria-selected': active ? 'true' : 'false',
         title: t('renameTab'),
+        draggable: !editing,
         style: Object.assign(
           {},
           styles.tab,
           { padding: m.tabPad, fontSize: m.tabFont },
+          dragging ? { opacity: 0.45 } : null,
           hover ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : null,
           active ? styles.tabActive : null,
+          /* A single hairline marks where the dragged tab will land. */
+          dropSide === 'before' ? { boxShadow: 'inset 2px 0 0 var(--dsw-alias-state-success-primary)' } : null,
+          dropSide === 'after' ? { boxShadow: 'inset -2px 0 0 var(--dsw-alias-state-success-primary)' } : null,
         ),
         onMouseEnter: () => setHover(true),
         onMouseLeave: () => setHover(false),
+        onDragStart: event => {
+          setDragging(true)
+          if (onDragStart) onDragStart(tab.id, event)
+        },
+        onDragEnd: () => {
+          setDragging(false)
+          if (onDragEnd) onDragEnd()
+        },
+        onDragOver: event => {
+          if (!onDragOver) return
+          const box = typeof event.currentTarget.getBoundingClientRect === 'function'
+            ? event.currentTarget.getBoundingClientRect()
+            : null
+          const side = box && event.clientX < box.left + box.width / 2 ? 'before' : 'after'
+          if (onDragOver(tab.id, side, event) !== false) event.preventDefault()
+        },
+        onDrop: event => {
+          if (!onDrop) return
+          event.preventDefault()
+          event.stopPropagation()
+          const box = typeof event.currentTarget.getBoundingClientRect === 'function'
+            ? event.currentTarget.getBoundingClientRect()
+            : null
+          const side = box && event.clientX < box.left + box.width / 2 ? 'before' : 'after'
+          onDrop(tab.id, side)
+        },
         onClick: () => onSelect(tab.id),
         onDoubleClick: event => {
           event.stopPropagation()
@@ -1712,10 +1744,13 @@ window.__ModuleLoader__.load({
       const [createFailure, setCreateFailure] = useState(null)
       const [draft, setDraft] = useState(null)
       const [dragOverId, setDragOverId] = useState(null)
+      const [tabDrop, setTabDrop] = useState(null)
       const rootRef = useRef(null)
       const hostRef = useRef(null)
       const dragRef = useRef(null)
       const dragPaneRef = useRef(null)
+      const tabDragRef = useRef(null)
+      const tabDragEndAt = useRef(0)
       const phase = useSessions(state => state.phase)
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
       const readWorkspaces = typeof useWorkspaces === 'function' ? useWorkspaces : selector => selector(null)
@@ -1803,6 +1838,8 @@ window.__ModuleLoader__.load({
       }, [maximizedId, immersive, setLayout])
 
       const selectTab = useCallback(id => {
+        /* A drop ends with a click in most browsers; don't also switch tabs. */
+        if (Date.now() - tabDragEndAt.current < 200) return
         setBoard(previous => (previous && previous.activeTabId !== id
           ? Object.assign({}, previous, { activeTabId: id })
           : previous))
@@ -1810,6 +1847,61 @@ window.__ModuleLoader__.load({
         setPickingId(null)
         setWorkspaceFor(null)
       }, [])
+
+      /** Move one tab next to another; `side` is 'before' or 'after'. */
+      const moveTab = useCallback((sourceId, targetId, side) => {
+        setBoard(previous => {
+          if (!previous || !sourceId || sourceId === targetId) return previous
+          const sourceIndex = previous.tabs.findIndex(tab => tab.id === sourceId)
+          if (sourceIndex < 0) return previous
+          const tabs = previous.tabs.slice()
+          const moved = tabs.splice(sourceIndex, 1)[0]
+          const targetIndex = tabs.findIndex(tab => tab.id === targetId)
+          if (targetIndex < 0) return previous
+          tabs.splice(side === 'after' ? targetIndex + 1 : targetIndex, 0, moved)
+          return Object.assign({}, previous, { tabs })
+        })
+        tabDragRef.current = null
+        tabDragEndAt.current = Date.now()
+        setTabDrop(null)
+      }, [])
+
+      const startTabDrag = useCallback((id, event) => {
+        tabDragRef.current = id
+        if (event && event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move'
+          try {
+            event.dataTransfer.setData('text/x-multisession-tab', id)
+          } catch (_unavailable) {
+            /* Some browsers refuse custom types; the ref still carries the id. */
+          }
+        }
+      }, [])
+
+      const hoverTab = useCallback((id, side) => {
+        if (!tabDragRef.current || tabDragRef.current === id) {
+          setTabDrop(null)
+          return false
+        }
+        setTabDrop(current => (current && current.id === id && current.side === side
+          ? current
+          : { id, side }))
+        return true
+      }, [])
+
+      const endTabDrag = useCallback(() => {
+        tabDragRef.current = null
+        tabDragEndAt.current = Date.now()
+        setTabDrop(null)
+      }, [])
+
+      /** Dropping on the empty part of the strip moves the tab to the end. */
+      const dropTabAtEnd = useCallback(event => {
+        const sourceId = tabDragRef.current
+        if (!sourceId || !board) return
+        event.preventDefault()
+        moveTab(sourceId, board.tabs[board.tabs.length - 1].id, 'after')
+      }, [board, moveTab])
 
       const addTab = useCallback(() => {
         let snapshot = null
@@ -2263,17 +2355,31 @@ window.__ModuleLoader__.load({
         })
 
         body = h(React.Fragment, null,
-          h('div', { style: styles.tabBar, role: 'tablist', 'data-tab-bar': '' },
+          h('div', {
+            style: styles.tabBar,
+            role: 'tablist',
+            'data-tab-bar': '',
+            onDragOver: event => {
+              if (!tabDragRef.current) return
+              event.preventDefault()
+            },
+            onDrop: dropTabAtEnd,
+          },
             board.tabs.map(tab => h(TabButton, {
               key: tab.id,
               tab,
               active: tab.id === board.activeTabId,
               canClose: board.tabs.length > 1,
+              dropSide: tabDrop && tabDrop.id === tab.id ? tabDrop.side : null,
               useSessions,
               t,
               onSelect: selectTab,
               onClose: closeTab,
               onRename: renameTab,
+              onDragStart: startTabDrag,
+              onDragOver: hoverTab,
+              onDrop: (targetId, side) => moveTab(tabDragRef.current, targetId, side),
+              onDragEnd: endTabDrag,
             })),
             h('button', {
               type: 'button',

@@ -295,3 +295,11 @@ MultiSessionPage                // main 槽位条目，root scope
 - 视觉：活动格子标题栏用 `--dsw-alias-bg-base` 高亮（`onPointerDown` 记录 `activePaneId`）；分隔条外层是命中区、内层 `span` 是可见细线，hover 时变主题绿并提高不透明度；标签 hover 有底色、活动标签底部 2px 主题色下划线、关闭按钮未 hover 时透明但保留在 DOM 里；按钮 `focus-visible` 用 2px 外圈；标签与标题栏颜色/底色带 120ms 过渡。
 - 测试：`render-smoke` 新增「首次出现引导条」「标题栏有拖拽手柄」「关闭后记住并不再出现」「`?` 重开」「密度切换并写入 v7」「hover 图标出现 tooltip」；原有 v6 断言改为 v7。
 - 不做：自定义主题色、字号滑杆、每格独立密度、真正的系统级全屏。
+## 25. v0.12 页签拖动排序
+
+- 需求：多会话面板上方的页签要能像浏览器那样拖动换位置，让常用的布局排在前面。
+- 交互：页签本身 `draggable`（编辑名字时临时关闭），`dragstart` 把页签 id 写进 `dataTransfer` 的自定义类型 `text/x-multisession-tab`，同时记在 `tabDragRef` 里兜底；拖到另一个页签上时按指针落在左半还是右半决定插到它前面还是后面，并用 2px 主题色内阴影标出落点；松手后重排 `board.tabs`。拖到页签条空白处（`data-tab-bar` 的空白区域）则移到最末。
+- 行为：只改变页签顺序，`activeTabId` 不变，当前面板不重建、对话不重挂载；每个页签各自的 `panes / rows / rowWeights / colWeights / maximizedId` 跟着页签一起移动，因为重排的是数组本身而不是布局内容。
+- 细节：拖放结束后浏览器通常还会补一个 `click`，用一个 200ms 的时间戳忽略这次点击，避免「拖完顺手切了页签」；拖动中的页签降低不透明度，落点提示用 `box-shadow` 内阴影，不触发重排。
+- 测试：`render-smoke` 新增「拖第一个页签到最后一个页签上，持久化数组里两者顺序互换」。
+- 不做：拖动页签到别的窗口、页签拖出成新面板、跨页签拖格子、键盘重排（后续可加 Alt+方向键）。
