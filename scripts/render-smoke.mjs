@@ -528,17 +528,27 @@ checks.push([
   'only the active tab renders its own board',
 ])
 
+const firstPaneBefore = tabContainer.querySelector('[data-pane-id="tabpane1"]')
 await click(tabContainer.querySelector('[data-tab-id="t2"]'))
+const firstBoard = tabContainer.querySelector('[data-board-id="t1"]')
 checks.push([
   !!tabContainer.querySelector('[data-pane-id="tabpane2"]') &&
-    !tabContainer.querySelector('[data-pane-id="tabpane1"]'),
-  'switching a tab swaps the whole tiling board',
+    !!firstBoard && firstBoard.style.display === 'none',
+  'switching a tab shows the other board and hides the first',
+])
+checks.push([
+  !!firstPaneBefore && tabContainer.querySelector('[data-pane-id="tabpane1"]') === firstPaneBefore,
+  'the inactive tab stays mounted so its conversation keeps its state',
 ])
 
 await click(tabContainer.querySelector('button[aria-label="newTab"]'))
 checks.push([
   tabContainer.querySelectorAll('[data-tab-id]').length === 3,
   'the plus button opens another tab',
+])
+checks.push([
+  tabContainer.querySelectorAll('[data-board-id]').length <= 3,
+  'the mounted board budget caps how many tabs stay alive',
 ])
 
 await act(async () => { await sleep(260) })

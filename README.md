@@ -34,6 +34,7 @@ npm 包：`@vegataa/dsh-multi-session`
 - 交换会话走 HTML5 拖放，MIME 用自定义的 `text/x-multisession-pane`，只在面板内部认；拖拽过程中不改 DOM 结构，松手时只交换两个格子的 `sessionId`，所以对话视图和滚动位置都还在原来的格子实例里。
 - 格子按「行 → 列」两级权重存储：每行的 `rowWeights` 决定高度，每行内两格的 `colWeights` 决定宽度；拖动分隔条只改这两级权重，所以相邻格子永远互补、整块面板始终铺满。最小化是每个格子的 `minimized` 标志：收起后该格不再参与网格计算（行里只剩一格就独占整行），但它在 `rows` 里的位置保留着，展开即回原位。
 - 标签栏是「多套布局」而不是「多套面板」：v7 的存储是一份 `{ tabs, activeTabId, immersive, density }`，每个 tab 里放的正是原来那套 `panes / rows / rowWeights / colWeights / maximizedId`。切标签只是换 `activeTabId`，面板本身不重建；旧版本（v1–v6）的布局会原样升级，不会丢。
+- 最近访问的 3 个标签会保持挂载（`MAX_MOUNTED_TABS`）：切回来时滚动位置、输入框草稿和正在流式输出的内容都还在；超出的标签整块卸载，但会话本身在后台继续跑。
 - 密度不是两套样式表：`METRICS` 里放紧凑 / 舒适两档的尺寸，组件通过 `DensityContext` 取当前这档，拖动计算（`beginSplitDrag` 的可用像素、最小格宽高）也跟着同一份数字走，避免尺寸和命中区各算各的。
 - 分隔条只在视觉上是 6px / 10px 的细线：外层是命中区，内层 `span` 才是那条线，悬停只改内层颜色和透明度，不改布局，所以拖起来不会抖。
 - 标签拖动排序走 HTML5 拖放（自定义类型 `text/x-multisession-tab`），松手时只重排 `board.tabs` 数组，`activeTabId` 不变、布局不重建；拖到标签条空白处则移到最末。落点只按左右半区判断插到目标前还是后，不额外算几何。

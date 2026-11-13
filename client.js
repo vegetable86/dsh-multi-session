@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.12.1'
+    const VERSION = '0.13.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -17,6 +17,9 @@ window.__ModuleLoader__.load({
     /** Guard against a corrupted stored layout; the UI itself has no cap. */
     const STORED_PANE_LIMIT = 32
     const STORED_TAB_LIMIT = 24
+/* Keep a few boards mounted so switching tabs never loses scroll or stream state. */
+const MAX_MOUNTED_TABS = 3
+const NOOP = () => {}
     const REF_SOURCE = 'multisessionPane'
     /** Dismissal flag for the one-time hint strip. */
     const HINT_KEY = 'dsh.multi-session.hint.v1'
@@ -299,6 +302,14 @@ window.__ModuleLoader__.load({
         boxSizing: 'border-box',
         overflow: 'hidden',
       },
+      board: {
+        display: 'flex',
+        flexDirection: 'column',
+        flex: '1 1 auto',
+        minHeight: 0,
+        minWidth: 0,
+      },
+      boardHidden: { display: 'none' },
       maximizedHost: {
         flex: '1 1 auto',
         minHeight: 0,
@@ -1745,6 +1756,7 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState(null)
       const [dragOverId, setDragOverId] = useState(null)
       const [tabDrop, setTabDrop] = useState(null)
+      const [mountedTabs, setMountedTabs] = useState([])
       const rootRef = useRef(null)
       const hostRef = useRef(null)
       const dragRef = useRef(null)
@@ -1817,6 +1829,20 @@ window.__ModuleLoader__.load({
         if (board === null) return
         const timer = setTimeout(() => saveBoard(board), 200)
         return () => clearTimeout(timer)
+      }, [board])
+
+      /* LRU of mounted boards: the active tab joins the front, the oldest
+         inactive one drops out once the budget is spent. */
+      useEffect(() => {
+        if (!board) return
+        setMountedTabs(previous => {
+          const alive = previous.filter(id => board.tabs.some(tab => tab.id === id))
+          const next = [board.activeTabId]
+            .concat(alive.filter(id => id !== board.activeTabId))
+            .slice(0, MAX_MOUNTED_TABS)
+          if (next.length === previous.length && next.every((id, index) => id === previous[index])) return previous
+          return next
+        })
       }, [board])
 
       const maximizedId = layout ? layout.maximizedId : null
@@ -2354,6 +2380,75 @@ window.__ModuleLoader__.load({
           }
         })
 
+        const noopHandler = NOOP
+
+        /* Inactive tabs stay mounted (up to MAX_MOUNTED_TABS) so switching back
+           keeps scroll position, composer drafts and streaming output. They are
+           rendered without handlers and never receive pointer events. */
+        const renderDormantBoard = tab => {
+          const rows = visibleGrid(tab)
+          if (rows.length === 0) {
+            return h('div', { style: styles.center },
+              h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
+          }
+          const cells = []
+          rows.forEach(entry => {
+            const rowCells = []
+            entry.ids.forEach(id => {
+              const pane = tab.panes.find(item => item.id === id)
+              if (!pane) return
+              rowCells.push(h('div', {
+                key: id,
+                'data-pane-id': id,
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flexGrow: tab.colWeights[id] || 1,
+                  flexBasis: 0,
+                  minWidth: 0,
+                  minHeight: 0,
+                },
+              }, h(PaneShell, {
+                pane,
+                maximized: false,
+                active: false,
+                canClose: tab.panes.length > 1,
+                canOpenMain: false,
+                picking: false,
+                sessions,
+                SessionProvider,
+                renderSlot,
+                useSessions,
+                t,
+                creating: false,
+                createError: null,
+                onOpenPicker: noopHandler,
+                onToggleMax: noopHandler,
+                onMinimize: noopHandler,
+                onOpenMain: noopHandler,
+                onClose: noopHandler,
+                onAssign: noopHandler,
+                onClear: noopHandler,
+                onCreate: noopHandler,
+                onDismissPicker: noopHandler,
+                onDragStart: noopHandler,
+                onDragEnd: noopHandler,
+              })))
+            })
+            cells.push(h('div', {
+              key: 'row-' + entry.index,
+              style: Object.assign({}, styles.tileRow, { flexGrow: tab.rowWeights[entry.index] || 1 }),
+            }, rowCells))
+          })
+          return h('div', {
+            style: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 },
+          }, cells)
+        }
+
+        const mountedIds = Array.from(new Set([board.activeTabId].concat(mountedTabs)))
+          .filter(id => board.tabs.some(tab => tab.id === id))
+          .slice(0, MAX_MOUNTED_TABS)
+
         body = h(React.Fragment, null,
           h('div', {
             style: styles.tabBar,
@@ -2454,19 +2549,30 @@ window.__ModuleLoader__.load({
             style: Object.assign({}, styles.host, { padding: metrics.pad }),
             'data-multisession-host': '',
           },
-            h('div', {
-              style: {
-                display: 'flex',
-                flexDirection: 'column',
-                flex: '1 1 auto',
-                minHeight: 0,
-                /* While one tile is maximised the others stay mounted but invisible. */
-                visibility: maximizedId ? 'hidden' : 'visible',
-              },
-            }, grid.length === 0
-              ? h('div', { style: styles.center },
-                h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
-              : view)))
+            mountedIds.map(id => {
+              const live = id === board.activeTabId
+              const tab = live ? layout : board.tabs.find(item => item.id === id)
+              return h('div', {
+                key: id,
+                'data-board-id': id,
+                'aria-hidden': live ? undefined : 'true',
+                style: live ? styles.board : styles.boardHidden,
+              }, live
+                ? h('div', {
+                  style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: '1 1 auto',
+                    minHeight: 0,
+                    /* While one tile is maximised the others stay mounted but invisible. */
+                    visibility: maximizedId ? 'hidden' : 'visible',
+                  },
+                }, grid.length === 0
+                  ? h('div', { style: styles.center },
+                    h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
+                  : view)
+                : renderDormantBoard(tab))
+            })))
       }
 
       return h(DensityContext.Provider, { value: metrics },
