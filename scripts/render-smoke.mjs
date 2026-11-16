@@ -768,6 +768,8 @@ checks.push([
     themedRoot.style.getPropertyValue('--ms-accent').trim() === '#D97757' &&
     themedRoot.style.getPropertyValue('--dsw-alias-bg-base').trim() === '#FAF9F5' &&
     themedRoot.style.getPropertyValue('--dsw-alias-bg-layer-2').trim() === '#EFEDE4' &&
+    themedRoot.style.getPropertyValue('--dsw-specific-bubble').trim() === '#EFEDE4' &&
+    themedRoot.style.getPropertyValue('--dsw-specific-input-major').trim() === '#EFEDE4' &&
     themedRoot.style.getPropertyValue('--dsw-alias-turn-trigger-bg').trim() === '#EFEDE4',
   'choosing a skin repaints the panel and persists',
 ])

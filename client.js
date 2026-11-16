@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.2'
+    const VERSION = '0.18.3'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -291,6 +291,15 @@ const NOOP = () => {}
         '--dsw-alias-scrollbar-bg-l2': p.scroll2,
         '--dsw-alias-scrollbar-hover-l1': p.scroll2,
         '--dsw-alias-scrollbar-hover-l2': p.scroll2,
+        /* The chat surface reads a handful of "specific" tokens that sit outside
+           the alias set: bubbles, the composer card, menus and selectors. Left
+           alone they keep the dark palette under a light skin, which is what
+           made the transcript look black-on-black. */
+        '--dsw-specific-bubble': p.surface2,
+        '--dsw-specific-input-major': p.surface2,
+        '--dsw-specific-menu': p.surface,
+        '--dsw-specific-selector': p.surface2,
+        '--dsw-menu-surface-fill': p.surface,
       }
     }
 
