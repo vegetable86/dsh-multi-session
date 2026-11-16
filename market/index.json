@@ -32,7 +32,7 @@
         ]
       },
       "dist-tags": {
-        "latest": "0.18.0"
+        "latest": "0.18.3"
       },
       "versions": [
         {
@@ -143,6 +143,27 @@
         {
           "version": "0.18.0",
           "publishTimestamp": 1794816007,
+          "source": {
+            "type": "npm"
+          }
+        },
+        {
+          "version": "0.18.1",
+          "publishTimestamp": 1794816381,
+          "source": {
+            "type": "npm"
+          }
+        },
+        {
+          "version": "0.18.2",
+          "publishTimestamp": 1794816660,
+          "source": {
+            "type": "npm"
+          }
+        },
+        {
+          "version": "0.18.3",
+          "publishTimestamp": 1794816679,
           "source": {
             "type": "npm"
           }
