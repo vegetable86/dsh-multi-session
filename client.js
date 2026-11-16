@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.14.0'
+    const VERSION = '0.15.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -127,6 +127,8 @@ const NOOP = () => {}
       densityHint: '切换格子的间距与按钮尺寸',
       hintText: '拖分隔条调大小 · 拖标题栏交换会话 · 拖标签可排序 · 标题栏的箭头在主面板打开',
       hintDismiss: '知道了',
+      tabDormant: '切回这个标签后重新连接',
+      duplicatePane: '这个会话已在另一格显示',
       hintShow: '操作提示',
     }
 
@@ -191,6 +193,8 @@ const NOOP = () => {}
       densityHint: 'Switch the spacing and the size of the pane buttons',
       hintText: 'Drag a divider to resize · drag a title bar to swap sessions · drag a tab to reorder · the arrow opens the pane in the main view',
       hintDismiss: 'Got it',
+      tabDormant: 'Switch back to this tab to reconnect',
+      duplicatePane: 'This session is already open in another pane',
       hintShow: 'Tips',
     }
 
@@ -235,6 +239,13 @@ const NOOP = () => {}
         flex: '1 1 auto',
         minWidth: 0,
         overflowX: 'auto',
+      },
+      versionTag: {
+        fontSize: 10.5,
+        color: 'var(--dsw-alias-label-tertiary)',
+        padding: '0 4px',
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
       },
       barActions: {
         display: 'flex',
@@ -406,7 +417,7 @@ const NOOP = () => {}
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
         transition: 'background 120ms ease',
       },
-      paneHeaderActive: { background: 'var(--dsw-alias-bg-base)' },
+      paneHeaderActive: { background: 'var(--dsw-alias-bg-l1)' },
       headerActions: {
         display: 'flex',
         alignItems: 'center',
@@ -527,6 +538,12 @@ const NOOP = () => {}
         minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
+      },
+      duplicateNote: {
+        color: 'var(--dsw-alias-label-tertiary)',
+        fontSize: 12.5,
+        textAlign: 'center',
+        padding: '0 12px',
       },
       center: {
         flex: '1 1 auto',
@@ -1631,7 +1648,7 @@ const NOOP = () => {}
      */
     const PaneShell = React.memo(function PaneShell(props) {
       const {
-        pane, maximized, active, canClose, canOpenMain, picking, sessions, SessionProvider, renderSlot, useSessions, t,
+        pane, maximized, active, showActions, canClose, canOpenMain, picking, duplicate, sessions, SessionProvider, renderSlot, useSessions, t,
         creating, createError, onOpenPicker, onToggleMax, onMinimize, onOpenMain, onClose, onAssign, onClear, onCreate, onDismissPicker,
         onDragStart, onDragEnd,
       } = props
@@ -1646,7 +1663,12 @@ const NOOP = () => {}
       }, [])
       return h('div', {
         ref: shellRef,
-        style: Object.assign({}, styles.pane, { borderRadius: m.radius }),
+        style: Object.assign({}, styles.pane, {
+          borderRadius: m.radius,
+          background: 'var(--dsw-alias-bg-base)',
+          borderColor: active ? 'var(--dsw-alias-border-l2)' : 'var(--dsw-alias-border-l1)',
+          boxShadow: active ? 'inset 2px 0 0 var(--dsw-alias-state-success-primary)' : 'none',
+        }),
         onMouseEnter: () => setHover(true),
         onMouseLeave: () => setHover(false),
       },
@@ -1668,9 +1690,12 @@ const NOOP = () => {}
           onDragEnd,
         }),
         h('div', { style: styles.body },
-          h(PaneBoundary, {
-            fallback: (error, retry, recovering) => h(PaneCrash, { error, t, onRetry: retry, recovering }),
-          }, h(PaneBody, {
+          duplicate
+            ? h('div', { style: styles.center },
+              h('span', { style: styles.duplicateNote }, t('duplicatePane')))
+            : h(PaneBoundary, {
+              fallback: (error, retry, recovering) => h(PaneCrash, { error, t, onRetry: retry, recovering }),
+            }, h(PaneBody, {
             pane,
             sessions,
             SessionProvider,
@@ -2382,8 +2407,13 @@ const NOOP = () => {}
         const byId = {}
         for (const pane of panes) byId[pane.id] = pane
 
+        const seenSessions = new Set()
         const renderCell = pane => {
           const isMax = maximizedId === pane.id
+          /* A session can only have one live composer: a second mount would
+             fight over the same draft and input machine. */
+          const duplicate = !!(pane.sessionId && seenSessions.has(pane.sessionId))
+          if (pane.sessionId) seenSessions.add(pane.sessionId)
           return h('div', {
             key: pane.id,
             'data-pane-id': pane.id,
@@ -2414,6 +2444,7 @@ const NOOP = () => {}
             pane,
             maximized: isMax,
             active: activePaneId === pane.id,
+            duplicate,
             canClose: panes.length > 1,
             canOpenMain: canOpenMain && !!pane.sessionId,
             picking: pickingId === pane.id,
@@ -2500,32 +2531,11 @@ const NOOP = () => {}
                   minWidth: 0,
                   minHeight: 0,
                 },
-              }, h(PaneShell, {
-                pane,
-                maximized: false,
-                active: false,
-                canClose: tab.panes.length > 1,
-                canOpenMain: false,
-                picking: false,
-                sessions,
-                SessionProvider,
-                renderSlot,
-                useSessions,
-                t,
-                creating: false,
-                createError: null,
-                onOpenPicker: noopHandler,
-                onToggleMax: noopHandler,
-                onMinimize: noopHandler,
-                onOpenMain: noopHandler,
-                onClose: noopHandler,
-                onAssign: noopHandler,
-                onClear: noopHandler,
-                onCreate: noopHandler,
-                onDismissPicker: noopHandler,
-                onDragStart: noopHandler,
-                onDragEnd: noopHandler,
-              })))
+              }, h('div', { style: styles.pane },
+                h('div', { style: styles.paneHeader },
+                  h('span', { style: styles.titleText }, pane.sessionId ? String(pane.sessionId).slice(0, 8) : t('noSession'))),
+                h('div', { style: styles.center },
+                  h('span', { style: styles.duplicateNote }, t('tabDormant'))))))
             })
             cells.push(h('div', {
               key: 'row-' + entry.index,
@@ -2578,6 +2588,7 @@ const NOOP = () => {}
             }, '+')),
           h('span', { style: styles.spacer }),
           h('div', { style: styles.barActions },
+            h('span', { style: styles.versionTag, title: 'dsh-multi-session v' + VERSION }, 'v' + VERSION),
             h('button', {
               type: 'button',
               style: styles.iconGhost,

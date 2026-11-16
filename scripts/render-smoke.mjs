@@ -541,9 +541,51 @@ checks.push([
   'switching a tab shows the other board and hides the first',
 ])
 checks.push([
-  !!firstPaneBefore && tabContainer.querySelector('[data-pane-id="tabpane1"]') === firstPaneBefore,
-  'the inactive tab stays mounted so its conversation keeps its state',
+  !!firstBoard && firstBoard.textContent.includes('tabDormant'),
+  'an inactive tab keeps its grid but drops the live conversation',
 ])
+
+/* Two panes may point at one session, but only one live composer is allowed. */
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 7,
+  activeTabId: 's1',
+  immersive: false,
+  density: 'compact',
+  tabs: [{
+    id: 's1',
+    title: '',
+    panes: [
+      { id: 'dup1', sessionId: 'session-a' },
+      { id: 'dup2', sessionId: 'session-a' },
+    ],
+    rows: [['dup1', 'dup2']],
+    rowWeights: [1],
+    colWeights: { dup1: 1, dup2: 1 },
+    maximizedId: null,
+  }],
+}))
+const dupContainer = document.createElement('div')
+document.body.appendChild(dupContainer)
+const dupRoot = createRoot(dupContainer)
+await act(async () => { dupRoot.render(React.createElement(main.comp, mainProps)) })
+checks.push([
+  dupContainer.querySelector('[data-pane-id="dup2"]').textContent.includes('duplicatePane'),
+  'a session bound twice shows a notice instead of a second composer',
+])
+await act(async () => { dupRoot.unmount() })
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 7,
+  activeTabId: 't1',
+  immersive: false,
+  density: 'compact',
+  tabs: [{
+    id: 't1', title: '甲', panes: [{ id: 'tabpane1', sessionId: 'session-a' }],
+    rows: [['tabpane1']], rowWeights: [1], colWeights: { tabpane1: 1 }, maximizedId: null,
+  }, {
+    id: 't2', title: '乙', panes: [{ id: 'tabpane2', sessionId: 'session-b' }],
+    rows: [['tabpane2']], rowWeights: [1], colWeights: { tabpane2: 1 }, maximizedId: null,
+  }],
+}))
 
 await click(tabContainer.querySelector('button[aria-label="newTab"]'))
 checks.push([
