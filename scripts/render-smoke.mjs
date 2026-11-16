@@ -752,6 +752,11 @@ checks.push([
   polishContainer.querySelectorAll('[data-theme-option]').length === 6,
   'the picker lists every bundled skin',
 ])
+const themeMenuNode = polishContainer.querySelector('[data-theme-menu]')
+checks.push([
+  !!themeMenuNode && themeMenuNode.style.position === 'fixed',
+  'the skin menu escapes the clipped tab strip',
+])
 const claudeOption = polishContainer.querySelector('[data-theme-option="claude"]')
 if (claudeOption) await click(claudeOption)
 await act(async () => { await sleep(260) })

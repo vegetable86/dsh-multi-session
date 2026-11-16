@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.0'
+    const VERSION = '0.18.1'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -656,7 +656,7 @@ const NOOP = () => {}
         position: 'absolute',
         top: 'calc(100% + 6px)',
         right: 0,
-        zIndex: 81,
+        zIndex: 200,
         minWidth: 200,
         padding: 6,
         display: 'flex',
@@ -2142,6 +2142,18 @@ const NOOP = () => {}
       const theme = board && THEMES[board.theme] ? board.theme : DEFAULT_THEME
       const themeVars = THEMES[theme].vars
       const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+      /* The tab bar clips its overflow, so the menu is positioned against the
+         viewport instead of the button; capture the anchor when it opens. */
+      const [themeAnchorRect, setThemeAnchorRect] = useState(null)
+      const themeButtonRef = useRef(null)
+      const toggleThemeMenu = useCallback(() => {
+        setThemeMenuOpen(open => {
+          if (open) return false
+          const node = themeButtonRef.current
+          setThemeAnchorRect(node ? node.getBoundingClientRect() : null)
+          return true
+        })
+      }, [])
       const [hintOpen, setHintOpen] = useState(() => {
         try {
           return window.localStorage.getItem(HINT_KEY) !== '1'
@@ -2870,15 +2882,26 @@ const NOOP = () => {}
               },
             },
               h('button', {
+                ref: themeButtonRef,
                 type: 'button',
                 style: styles.iconGhost,
                 title: t('themeTitle'),
                 'aria-label': t('themeTitle'),
                 'aria-haspopup': 'menu',
                 'aria-expanded': themeMenuOpen ? 'true' : 'false',
-                onClick: () => setThemeMenuOpen(open => !open),
+                onClick: toggleThemeMenu,
               }, h(IconPalette)),
-              themeMenuOpen && h('div', { style: styles.themeMenu, role: 'menu', 'data-theme-menu': '' },
+              themeMenuOpen && h('div', {
+                style: themeAnchorRect
+                  ? Object.assign({}, styles.themeMenu, {
+                    position: 'fixed',
+                    top: Math.round(themeAnchorRect.bottom + 6) + 'px',
+                    right: Math.round(window.innerWidth - themeAnchorRect.right) + 'px',
+                  })
+                  : Object.assign({}, styles.themeMenu, { visibility: 'hidden' }),
+                role: 'menu',
+                'data-theme-menu': '',
+              },
                 THEME_ORDER.map(id => h('button', {
                   key: id,
                   type: 'button',
