@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.15.0'
+    const VERSION = '0.16.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -226,9 +226,10 @@ const NOOP = () => {}
       tabBar: {
         display: 'flex',
         alignItems: 'center',
-        gap: 2,
+        gap: 4,
         flex: '0 0 auto',
-        padding: '4px 6px',
+        padding: '6px 8px 0',
+        background: 'var(--dsw-alias-bg-l1)',
         overflow: 'hidden',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
@@ -404,19 +405,28 @@ const NOOP = () => {}
         minHeight: 0,
         height: '100%',
         overflow: 'hidden',
-        borderRadius: 10,
+        borderRadius: 14,
         border: '1px solid var(--dsw-alias-border-l1)',
-        background: 'var(--dsw-alias-bg-l1)',
+        background: 'var(--dsw-alias-bg-base)',
+        boxShadow: '0 6px 18px rgba(0, 0, 0, 0.16)',
       },
       paneHeader: {
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
+        gap: 6,
         flex: '0 0 auto',
-        padding: '3px 5px 3px 8px',
+        minHeight: 34,
+        padding: '0 6px 0 10px',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
         transition: 'background 120ms ease',
       },
+      paneAccent: {
+        height: 2,
+        flex: '0 0 auto',
+        background: 'transparent',
+        transition: 'background 160ms ease',
+      },
+      paneAccentOn: { background: 'var(--dsw-alias-state-success-primary)' },
       paneHeaderActive: { background: 'var(--dsw-alias-bg-l1)' },
       headerActions: {
         display: 'flex',
@@ -1672,6 +1682,7 @@ const NOOP = () => {}
         onMouseEnter: () => setHover(true),
         onMouseLeave: () => setHover(false),
       },
+        h('div', { style: Object.assign({}, styles.paneAccent, active ? styles.paneAccentOn : null) }),
         h(PaneHeader, {
           pane,
           maximized,
