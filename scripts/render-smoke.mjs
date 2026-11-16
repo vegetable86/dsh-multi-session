@@ -374,7 +374,7 @@ checks.push([
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tiled.version === 7 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
+  tiled.version === 8 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
   'the split weights are persisted',
 ])
 
@@ -451,7 +451,7 @@ checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbour
 await sleep(260)
 const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  minimizedStore.version === 7 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
+  minimizedStore.version === 8 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
   'the collapsed flag is persisted',
 ])
 await click(chip)
@@ -484,12 +484,12 @@ await click(immContainer.querySelector('button[aria-label="immersive"]'))
 const immersiveRoot = immContainer.querySelector('[data-immersive]')
 checks.push([!!immersiveRoot && immersiveRoot.style.position === 'fixed', 'immersive lifts the panel into a fixed overlay'])
 checks.push([
-  !!immersiveRoot && immersiveRoot.style.getPropertyValue('--ms-accent') === '#D97757',
-  'the panel scopes the Claude palette onto its own root',
+  !!immersiveRoot && immersiveRoot.style.getPropertyValue('--ms-accent').trim() === 'var(--dsw-alias-state-success-primary)',
+  'the panel scopes its own palette onto the root',
 ])
 checks.push([
-  !!immersiveRoot && immersiveRoot.style.getPropertyValue('--dsw-alias-bg-base') !== '',
-  'the palette remaps the DSH alias tokens for the conversation subtree',
+  !!immersiveRoot && immersiveRoot.getAttribute('data-theme') === 'harness',
+  'the board starts on the platform skin',
 ])
 await sleep(260)
 const immersiveStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
@@ -608,7 +608,7 @@ checks.push([
 await act(async () => { await sleep(260) })
 const tabStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  tabStore.version === 7 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
+  tabStore.version === 8 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
   'all tabs are persisted together',
 ])
 
@@ -739,9 +739,40 @@ if (densityButton) await click(densityButton)
 await act(async () => { await sleep(260) })
 const denseStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  denseStore.version === 7 && denseStore.density === 'comfortable' &&
+  denseStore.version === 8 && denseStore.density === 'comfortable' &&
     !!polishContainer.querySelector('button[aria-label="densityCompact"]'),
   'density toggles and is stored with the board',
+])
+
+// v0.18: the skin picker swaps the scoped palette and remembers the choice.
+const themeButton = polishContainer.querySelector('button[aria-label="themeTitle"]')
+checks.push([!!themeButton, 'the toolbar offers a theme picker'])
+if (themeButton) await click(themeButton)
+checks.push([
+  polishContainer.querySelectorAll('[data-theme-option]').length === 6,
+  'the picker lists every bundled skin',
+])
+const claudeOption = polishContainer.querySelector('[data-theme-option="claude"]')
+if (claudeOption) await click(claudeOption)
+await act(async () => { await sleep(260) })
+const themedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+const themedRoot = polishContainer.firstElementChild
+checks.push([
+  themedStore.version === 8 && themedStore.theme === 'claude' &&
+    !!themedRoot && themedRoot.getAttribute('data-theme') === 'claude' &&
+    themedRoot.style.getPropertyValue('--ms-accent').trim() === '#D97757' &&
+    themedRoot.style.getPropertyValue('--dsw-alias-bg-base').trim() === '#FAF9F5',
+  'choosing a skin repaints the panel and persists',
+])
+if (themeButton) await click(themeButton)
+const harnessOption = polishContainer.querySelector('[data-theme-option="harness"]')
+if (harnessOption) await click(harnessOption)
+await act(async () => { await sleep(260) })
+checks.push([
+  polishContainer.firstElementChild.getAttribute('data-theme') === 'harness' &&
+    polishContainer.firstElementChild.style.getPropertyValue('--ms-accent').trim() ===
+      'var(--dsw-alias-state-success-primary)',
+  'the default skin falls back to the platform palette',
 ])
 
 const minimizeButton = polishContainer.querySelector('button[aria-label="minimize"]')

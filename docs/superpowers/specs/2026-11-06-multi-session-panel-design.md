@@ -350,3 +350,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 排版：同时覆盖 `--dsw-font-markdown-base / -strong / -small / -h1..-h4`，把格子里的 Markdown 正文换成暖衬线字体栈（Georgia / Songti SC / SimSun），字号 15px、行高 1.72；插件自己的标签栏、按钮仍是系统无衬线。
 - 边界：仍是覆盖变量，不改结构、不注入全局样式表、不影响其他面板；若平台将来改用非 token 的硬编码颜色，这部分自动失效但不会报错。
 - 验证：`npm test`（18 项注册 + 全部渲染断言）全绿，`node --check client.js` 通过。
+
+## 31. v0.18：六套可切换皮肤
+
+- 需求：用户要一个风格下拉框，预制「默认 DeepSeek Harness / Anthropic / OpenAI / Terminal」，并把 Terminal 与 Anthropic 各做两套（绿/琥珀；浅/深）。
+- 方案：把 v0.17 的单份 `THEME` 换成注册表 `THEMES`（六项：`harness` / `claude` / `claudeDark` / `openai` / `terminal` / `amber`）。每一项只声明一份变量映射：面板自有的 `--ms-*`（底色、卡片面、边框、三级文字、强调色、hover、圆角）加上对话区读取的 `--dsw-alias-*` 与字体 token。切换就是把这份变量写到面板根节点，变量沿子树继承，因此原生对话一起换色；`harness` 一项把 `--ms-*` 指回平台 token，等价于「什么都不覆盖」。
+- 位置：标签栏右侧第一个图标（调色板），点开是下拉菜单；每项带色块、名称、当前项打勾；`Esc` 或失焦关闭，箭头可达。
+- 数据：board 增加 `theme`，存储版本 7 → 8；旧数据缺省为 `harness`；主题是面板级的，所有标签共用一套皮肤。
+- 排版：Claude 两套用暖衬线（15px/1.72），OpenAI 用系统无衬线（15px/1.66），Terminal 两套用等宽（13.5px/1.62）。
+- 边界：仍是变量覆盖，不注入样式表、不改结构；平台若改用非 token 的硬编码颜色，皮肤只影响外框，不影响对话正文。
+- 测试：新增四条——工具条有风格按钮、菜单列出 6 项、选 Claude 后根节点 `data-theme="claude"` 且 `--ms-accent` 为 `#D97757` 并写入存储、切回默认后 `--ms-accent` 恢复为平台变量。`npm test` 全绿。

@@ -24,6 +24,7 @@ npm 包：`@vegataa/dsh-multi-session`
 12. 同一个会话被放进两个格子时，第二个格子会提示「已在另一格显示」，不会出现两套输入框。
 13. 标签栏右侧的小字 X.Y.Z 是当前加载的构建版本，反馈问题时报这个版本号最省事。
 14. 格子里的对话也换上了 Claude 风格的暖色主题：面板在自己的根节点上重设 DSH 的主题变量（`--dsw-alias-*` 与 `--dsw-font-markdown-*`），对话区、代码块、滚动条、边框会跟着一起变，正文改用偏暖的衬线字体；这套配色只作用于多会话面板，其他页面不受影响。
+15. 标签栏右侧的调色板按钮可以换风格：跟随平台（默认）、Claude 浅色、Claude 深色、ChatGPT、Terminal 绿、Terminal 琥珀。选择会存进布局，刷新后保留，所有标签共用一套皮肤。
 
 ## 实现要点
 
@@ -37,9 +38,10 @@ npm 包：`@vegataa/dsh-multi-session`
 - 最大化改为 CSS 覆盖层（其余格子 `visibility: hidden` 但保持挂载），切换最大化不会重挂载对话，滚动位置和正在流式的回复都保留。
 - 沉浸全屏不是新窗口，也不是新面板：根节点切到 `position: fixed; inset: 0`，一层 `z-index` 盖住三栏框架，面板里的会话组件完全不用重挂载；`Esc` 先退最大化、再退全屏。顶部留出 Windows 标题栏的高度，避免盖住窗口拖动区。
 - 「在主面板打开」调用平台的 `uiWorkspace.openSession(sessionId)`；它会把该会话交给当前主面板并切换到单个对话，属于宿主既有的导航入口，插件不自己造一套。
+- 风格是一张注册表（`THEMES`）：每套皮肤只声明一份 CSS 变量映射（面板自己的 `--ms-*` 加上对话区读取的 `--dsw-alias-*` 与字体 token），切换时把变量写在面板根节点上。因为变量沿子树继承，原生对话会跟着换色，但不会影响面板之外的页面；「跟随平台」这套故意什么也不覆盖。
 - 交换会话走 HTML5 拖放，MIME 用自定义的 `text/x-multisession-pane`，只在面板内部认；拖拽过程中不改 DOM 结构，松手时只交换两个格子的 `sessionId`，所以对话视图和滚动位置都还在原来的格子实例里。
 - 格子按「行 → 列」两级权重存储：每行的 `rowWeights` 决定高度，每行内两格的 `colWeights` 决定宽度；拖动分隔条只改这两级权重，所以相邻格子永远互补、整块面板始终铺满。最小化是每个格子的 `minimized` 标志：收起后该格不再参与网格计算（行里只剩一格就独占整行），但它在 `rows` 里的位置保留着，展开即回原位。
-- 标签栏是「多套布局」而不是「多套面板」：v7 的存储是一份 `{ tabs, activeTabId, immersive, density }`，每个 tab 里放的正是原来那套 `panes / rows / rowWeights / colWeights / maximizedId`。切标签只是换 `activeTabId`，面板本身不重建；旧版本（v1–v6）的布局会原样升级，不会丢。
+- 标签栏是「多套布局」而不是「多套面板」：v8 的存储是一份 `{ tabs, activeTabId, immersive, density, theme }`，每个 tab 里放的正是原来那套 `panes / rows / rowWeights / colWeights / maximizedId`。切标签只是换 `activeTabId`，面板本身不重建；旧版本（v1–v7）的布局会原样升级，不会丢。
 - 最近访问的 3 个标签会保持挂载（`MAX_MOUNTED_TABS`）：切回来时滚动位置、输入框草稿和正在流式输出的内容都还在；超出的标签整块卸载，但会话本身在后台继续跑。
 - 密度不是两套样式表：`METRICS` 里放紧凑 / 舒适两档的尺寸，组件通过 `DensityContext` 取当前这档，拖动计算（`beginSplitDrag` 的可用像素、最小格宽高）也跟着同一份数字走，避免尺寸和命中区各算各的。
 - 分隔条只在视觉上是 6px / 10px 的细线：外层是命中区，内层 `span` 才是那条线，悬停只改内层颜色和透明度，不改布局，所以拖起来不会抖。

@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.17.0'
+    const VERSION = '0.18.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -130,6 +130,13 @@ const NOOP = () => {}
       tabDormant: '切回这个标签后重新连接',
       duplicatePane: '这个会话已在另一格显示',
       hintShow: '操作提示',
+      themeTitle: '风格',
+      themeHarness: '跟随平台',
+      themeClaude: 'Claude 浅色',
+      themeClaudeDark: 'Claude 深色',
+      themeOpenai: 'ChatGPT',
+      themeTerminal: 'Terminal 绿',
+      themeAmber: 'Terminal 琥珀',
     }
 
     const EN = {
@@ -196,67 +203,165 @@ const NOOP = () => {}
       tabDormant: 'Switch back to this tab to reconnect',
       duplicatePane: 'This session is already open in another pane',
       hintShow: 'Tips',
+      themeTitle: 'Theme',
+      themeHarness: 'Platform default',
+      themeClaude: 'Claude light',
+      themeClaudeDark: 'Claude dark',
+      themeOpenai: 'ChatGPT',
+      themeTerminal: 'Terminal green',
+      themeAmber: 'Terminal amber',
     }
 
-    /* Anthropic-flavoured palette: warm neutrals, one clay accent, no glow. */
-    const THEME = {
-      bg: '#1F1E1B',
-      surface: '#262624',
-      surface2: '#30302E',
-      border: 'rgba(240, 238, 230, 0.10)',
-      borderStrong: 'rgba(240, 238, 230, 0.18)',
-      text: '#F0EEE6',
-      textSecondary: '#B8B5AA',
-      textTertiary: '#8A877C',
-      accent: '#D97757',
-      hover: 'rgba(240, 238, 230, 0.06)',
-      code: '#191817',
+    /* Theme presets. Each preset maps the panel's own --ms-* variables and the
+       DSH --dsw-alias-* tokens the native conversation reads, so a skin also
+       reaches inside the transcript without touching platform code. */
+    const DEFAULT_THEME = 'harness'
+    const SERIF = '"Georgia", "Songti SC", "SimSun", serif'
+    const MONO = '"Cascadia Mono", Consolas, "Courier New", monospace'
+
+    function paletteVars(p) {
+      return {
+        '--ms-bg': p.bg,
+        '--ms-surface': p.surface,
+        '--ms-surface-2': p.surface2,
+        '--ms-border': p.border,
+        '--ms-border-strong': p.border2,
+        '--ms-text': p.text,
+        '--ms-text-secondary': p.text2,
+        '--ms-text-tertiary': p.text3,
+        '--ms-accent': p.accent,
+        '--ms-hover': p.hover,
+        '--ms-radius': p.radius,
+        '--dsw-alias-bg-base': p.surface,
+        '--dsw-alias-bg-l1': p.bg,
+        '--dsw-alias-bg-layer-1': p.surface,
+        '--dsw-alias-bg-overlay': p.surface2,
+        '--dsw-alias-bg-module-platform': p.surface2,
+        '--dsw-alias-border-l1': p.border,
+        '--dsw-alias-border-l2': p.border2,
+        '--dsw-alias-border-l3': p.border3,
+        '--dsw-alias-border-l4': p.border4,
+        '--dsw-alias-label-primary': p.text,
+        '--dsw-alias-label-secondary': p.text2,
+        '--dsw-alias-label-tertiary': p.text3,
+        '--dsw-alias-label-caption': p.text3,
+        '--dsw-alias-label-dimmed': p.dimmed,
+        '--dsw-alias-interactive-bg-hover': p.hover,
+        '--dsw-alias-interactive-bg-hover-solid': p.surface2,
+        '--dsw-alias-markdown-code-block': p.code,
+        '--dsw-alias-scrollbar-bg-l1': p.scroll1,
+        '--dsw-alias-scrollbar-bg-l2': p.scroll2,
+        '--dsw-alias-button-floating-fill': p.surface2,
+        '--dsw-alias-button-elevated-fill': p.surface2,
+      }
     }
 
-    /* Scope the palette to this panel: the tokens inherit into the native
-       conversation subtree, so the transcript is restyled too. */
-    const themeVars = {
-      '--ms-bg': THEME.bg,
-      '--ms-surface': THEME.surface,
-      '--ms-surface-2': THEME.surface2,
-      '--ms-border': THEME.border,
-      '--ms-border-strong': THEME.borderStrong,
-      '--ms-text': THEME.text,
-      '--ms-text-secondary': THEME.textSecondary,
-      '--ms-text-tertiary': THEME.textTertiary,
-      '--ms-accent': THEME.accent,
-      '--ms-hover': THEME.hover,
-      '--dsw-alias-bg-base': THEME.surface,
-      '--dsw-alias-bg-l1': THEME.surface,
-      '--dsw-alias-bg-layer-1': THEME.surface,
-      '--dsw-alias-bg-overlay': THEME.surface2,
-      '--dsw-alias-bg-module-platform': THEME.surface2,
-      '--dsw-alias-border-l1': THEME.border,
-      '--dsw-alias-border-l2': THEME.borderStrong,
-      '--dsw-alias-border-l3': 'rgba(240, 238, 230, 0.24)',
-      '--dsw-alias-border-l4': 'rgba(240, 238, 230, 0.30)',
-      '--dsw-alias-label-primary': THEME.text,
-      '--dsw-alias-label-secondary': THEME.textSecondary,
-      '--dsw-alias-label-tertiary': THEME.textTertiary,
-      '--dsw-alias-label-caption': THEME.textTertiary,
-      '--dsw-alias-label-dimmed': 'rgba(240, 238, 230, 0.45)',
-      '--dsw-alias-interactive-bg-hover': THEME.hover,
-      '--dsw-alias-interactive-bg-hover-solid': THEME.surface2,
-      '--dsw-alias-markdown-code-block': THEME.code,
-      '--dsw-alias-scrollbar-bg-l1': 'rgba(240, 238, 230, 0.10)',
-      '--dsw-alias-scrollbar-bg-l2': 'rgba(240, 238, 230, 0.18)',
-      '--dsw-alias-button-floating-fill': THEME.surface2,
-      '--dsw-alias-button-elevated-fill': THEME.surface2,
-      /* Claude reads in a warm serif; keep the chrome sans and only retune
-         the markdown typography inside the pane. */
-      '--dsw-font-markdown-base': '15px/1.72 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-base-strong': '600 15px/1.72 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-small': '13px/1.62 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-h1': '600 22px/1.35 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-h2': '600 19px/1.4 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-h3': '600 17px/1.45 "Georgia", "Songti SC", "SimSun", serif',
-      '--dsw-font-markdown-h4': '600 15.5px/1.5 "Georgia", "Songti SC", "SimSun", serif',
+    function typeVars(family, size, line) {
+      const base = size + 'px/' + line + ' ' + family
+      return {
+        '--dsw-font-markdown-base': base,
+        '--dsw-font-markdown-base-strong': '600 ' + base,
+        '--dsw-font-markdown-small': '13px/1.62 ' + family,
+        '--dsw-font-markdown-h1': '600 ' + (size + 7) + 'px/1.35 ' + family,
+        '--dsw-font-markdown-h2': '600 ' + (size + 4) + 'px/1.4 ' + family,
+        '--dsw-font-markdown-h3': '600 ' + (size + 2) + 'px/1.45 ' + family,
+        '--dsw-font-markdown-h4': '600 ' + (size + 0.5) + 'px/1.5 ' + family,
+      }
     }
+
+    const PALETTES = {
+      claude: {
+        bg: '#F0EEE6', surface: '#FAF9F5', surface2: '#EFEDE4',
+        border: 'rgba(31,30,27,0.12)', border2: 'rgba(31,30,27,0.22)',
+        border3: 'rgba(31,30,27,0.28)', border4: 'rgba(31,30,27,0.34)',
+        text: '#1F1E1B', text2: '#5C5A54', text3: '#8A877C',
+        accent: '#D97757', hover: 'rgba(31,30,27,0.05)', code: '#EFEDE4',
+        scroll1: 'rgba(31,30,27,0.14)', scroll2: 'rgba(31,30,27,0.24)',
+        dimmed: 'rgba(31,30,27,0.45)', radius: '12px',
+      },
+      claudeDark: {
+        bg: '#1F1E1B', surface: '#262624', surface2: '#30302E',
+        border: 'rgba(240,238,230,0.10)', border2: 'rgba(240,238,230,0.18)',
+        border3: 'rgba(240,238,230,0.24)', border4: 'rgba(240,238,230,0.30)',
+        text: '#F0EEE6', text2: '#B8B5AA', text3: '#8A877C',
+        accent: '#D97757', hover: 'rgba(240,238,230,0.06)', code: '#191817',
+        scroll1: 'rgba(240,238,230,0.10)', scroll2: 'rgba(240,238,230,0.18)',
+        dimmed: 'rgba(240,238,230,0.45)', radius: '12px',
+      },
+      openai: {
+        bg: '#F7F7F8', surface: '#FFFFFF', surface2: '#F1F1F2',
+        border: '#E6E6E7', border2: '#D3D3D5',
+        border3: '#C4C4C6', border4: '#B5B5B7',
+        text: '#0D0D0D', text2: '#5D5D5D', text3: '#8F8F8F',
+        accent: '#0D0D0D', hover: 'rgba(0,0,0,0.05)', code: '#F4F4F5',
+        scroll1: 'rgba(0,0,0,0.12)', scroll2: 'rgba(0,0,0,0.20)',
+        dimmed: 'rgba(0,0,0,0.40)', radius: '16px',
+      },
+      terminal: {
+        bg: '#07090A', surface: '#0B0F0E', surface2: '#101715',
+        border: '#1F3A31', border2: '#2E5C4B',
+        border3: '#3E6E5B', border4: '#4E826C',
+        text: '#C9F5DC', text2: '#6FBF97', text3: '#3F7D62',
+        accent: '#3DFF88', hover: 'rgba(61,255,136,0.08)', code: '#050807',
+        scroll1: 'rgba(61,255,136,0.18)', scroll2: 'rgba(61,255,136,0.28)',
+        dimmed: 'rgba(201,245,220,0.50)', radius: '2px',
+      },
+      amber: {
+        bg: '#0A0805', surface: '#100C07', surface2: '#17110A',
+        border: '#3A2A12', border2: '#5C4319',
+        border3: '#6E5322', border4: '#7E6230',
+        text: '#FFD9A0', text2: '#C79A55', text3: '#7E6132',
+        accent: '#FFB000', hover: 'rgba(255,176,0,0.08)', code: '#070503',
+        scroll1: 'rgba(255,176,0,0.18)', scroll2: 'rgba(255,176,0,0.28)',
+        dimmed: 'rgba(255,217,160,0.50)', radius: '2px',
+      },
+    }
+
+    const THEMES = {
+      harness: {
+        labelKey: 'themeHarness',
+        swatch: 'linear-gradient(135deg, #4d6bfe, #1d1d1f)',
+        vars: {
+          '--ms-bg': 'var(--dsw-alias-bg-l1)',
+          '--ms-surface': 'var(--dsw-alias-bg-base)',
+          '--ms-surface-2': 'var(--dsw-alias-bg-base)',
+          '--ms-border': 'var(--dsw-alias-border-l1)',
+          '--ms-border-strong': 'var(--dsw-alias-border-l2)',
+          '--ms-text': 'var(--dsw-alias-label-primary)',
+          '--ms-text-secondary': 'var(--dsw-alias-label-secondary)',
+          '--ms-text-tertiary': 'var(--dsw-alias-label-tertiary)',
+          '--ms-accent': 'var(--dsw-alias-state-success-primary)',
+          '--ms-hover': 'var(--dsw-alias-interactive-bg-hover)',
+          '--ms-radius': '12px',
+        },
+      },
+      claude: {
+        labelKey: 'themeClaude',
+        swatch: '#FAF9F5',
+        vars: Object.assign(paletteVars(PALETTES.claude), typeVars(SERIF, 15, 1.72)),
+      },
+      claudeDark: {
+        labelKey: 'themeClaudeDark',
+        swatch: '#262624',
+        vars: Object.assign(paletteVars(PALETTES.claudeDark), typeVars(SERIF, 15, 1.72)),
+      },
+      openai: {
+        labelKey: 'themeOpenai',
+        swatch: '#FFFFFF',
+        vars: Object.assign(paletteVars(PALETTES.openai), typeVars('var(--dsw-font-family)', 15, 1.66)),
+      },
+      terminal: {
+        labelKey: 'themeTerminal',
+        swatch: '#3DFF88',
+        vars: Object.assign(paletteVars(PALETTES.terminal), typeVars(MONO, 13.5, 1.62)),
+      },
+      amber: {
+        labelKey: 'themeAmber',
+        swatch: '#FFB000',
+        vars: Object.assign(paletteVars(PALETTES.amber), typeVars(MONO, 13.5, 1.62)),
+      },
+    }
+    const THEME_ORDER = ['harness', 'claude', 'claudeDark', 'openai', 'terminal', 'amber']
 
     const styles = {
       root: {
@@ -267,8 +372,8 @@ const NOOP = () => {}
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
-        background: 'var(--ms-bg)',
-        color: 'var(--ms-text)',
+        background: 'var(--ms-bg, var(--dsw-alias-bg-base))',
+        color: 'var(--ms-text, var(--dsw-alias-label-primary))',
       },
       /* Immersive: the panel leaves the grid and covers the whole window. */
       immersive: {
@@ -289,9 +394,9 @@ const NOOP = () => {}
         gap: 4,
         flex: '0 0 auto',
         padding: '6px 8px 0',
-        background: 'var(--ms-bg)',
+        background: 'var(--ms-bg, var(--dsw-alias-bg-l1))',
         overflow: 'hidden',
-        borderBottom: '1px solid var(--ms-border)',
+        borderBottom: '1px solid var(--ms-border, var(--dsw-alias-border-l1))',
       },
       tabScroll: {
         display: 'flex',
@@ -465,7 +570,7 @@ const NOOP = () => {}
         minHeight: 0,
         height: '100%',
         overflow: 'hidden',
-        borderRadius: 12,
+        borderRadius: 'var(--ms-radius, 12px)',
         border: '1px solid var(--ms-border)',
         background: 'var(--ms-surface)',
         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.22)',
@@ -533,6 +638,72 @@ const NOOP = () => {}
         lineHeight: 1.4,
         whiteSpace: 'nowrap',
         pointerEvents: 'none',
+      },
+      themeAnchor: {
+        position: 'relative',
+        display: 'inline-flex',
+      },
+      menuBackdrop: {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 80,
+        border: 'none',
+        padding: 0,
+        background: 'transparent',
+        cursor: 'default',
+      },
+      themeMenu: {
+        position: 'absolute',
+        top: 'calc(100% + 6px)',
+        right: 0,
+        zIndex: 81,
+        minWidth: 200,
+        padding: 6,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        borderRadius: 10,
+        border: '1px solid var(--ms-border)',
+        background: 'var(--ms-surface)',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.32)',
+      },
+      themeOption: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        padding: '7px 8px',
+        border: 'none',
+        borderRadius: 6,
+        background: 'transparent',
+        color: 'var(--ms-text)',
+        font: 'inherit',
+        fontSize: 12.5,
+        textAlign: 'left',
+        cursor: 'pointer',
+      },
+      themeOptionActive: {
+        background: 'var(--ms-hover)',
+        fontWeight: 600,
+      },
+      swatch: {
+        flex: '0 0 auto',
+        width: 16,
+        height: 16,
+        borderRadius: 4,
+        border: '1px solid var(--ms-border-strong)',
+      },
+      themeLabel: {
+        flex: '1 1 auto',
+        minWidth: 0,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      },
+      themeCheck: {
+        flex: '0 0 auto',
+        color: 'var(--ms-accent)',
+        fontSize: 12,
       },
       minimizedBar: {
         flex: '0 0 auto',
@@ -855,7 +1026,17 @@ const NOOP = () => {}
       }))
     }
 
-    function IconClose() {      return h(Icon, null, h('path', { d: 'M4 4l8 8M12 4l-8 8' }))
+    /* Three pigment dots inside a ring: the palette picker. */
+    function IconPalette() {
+      return h(Icon, null,
+        h('circle', { cx: 8, cy: 8, r: 6.2, stroke: 'currentColor', strokeWidth: 1.3 }),
+        h('circle', { cx: 5.8, cy: 5.8, r: 1.15, fill: 'currentColor', stroke: 'none' }),
+        h('circle', { cx: 10.2, cy: 6, r: 1.15, fill: 'currentColor', stroke: 'none' }),
+        h('circle', { cx: 7.6, cy: 10.4, r: 1.15, fill: 'currentColor', stroke: 'none' }))
+    }
+
+    function IconClose() {
+      return h(Icon, null, h('path', { d: 'M4 4l8 8M12 4l-8 8' }))
     }
 
     function IconChevron() {
@@ -1032,6 +1213,7 @@ const NOOP = () => {}
           activeTabId,
           immersive: value.immersive === true,
           density: value.density === 'comfortable' ? 'comfortable' : 'compact',
+          theme: THEMES[value.theme] ? value.theme : DEFAULT_THEME,
         }
       }
       if (typeof value.version !== 'number' || value.version < 1 || value.version > 6) return null
@@ -1042,6 +1224,7 @@ const NOOP = () => {}
         activeTabId: tab.id,
         immersive: value.immersive === true,
         density: value.density === 'comfortable' ? 'comfortable' : 'compact',
+        theme: THEMES[value.theme] ? value.theme : DEFAULT_THEME,
       }
     }
 
@@ -1058,10 +1241,11 @@ const NOOP = () => {}
     function saveBoard(board) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 7,
+          version: 8,
           activeTabId: board.activeTabId,
           immersive: board.immersive === true,
           density: board.density === 'comfortable' ? 'comfortable' : 'compact',
+          theme: THEMES[board.theme] ? board.theme : DEFAULT_THEME,
           tabs: board.tabs.map(tab => ({
             id: tab.id,
             title: tab.title,
@@ -1954,6 +2138,10 @@ const NOOP = () => {}
       /* Density is a board-level preference: it survives tab switches and reloads. */
       const density = board && board.density === 'comfortable' ? 'comfortable' : 'compact'
       const metrics = METRICS[density]
+      /* The skin is board-level too, so every tab wears the same palette. */
+      const theme = board && THEMES[board.theme] ? board.theme : DEFAULT_THEME
+      const themeVars = THEMES[theme].vars
+      const [themeMenuOpen, setThemeMenuOpen] = useState(false)
       const [hintOpen, setHintOpen] = useState(() => {
         try {
           return window.localStorage.getItem(HINT_KEY) !== '1'
@@ -1976,6 +2164,12 @@ const NOOP = () => {}
             density: previous.density === 'comfortable' ? 'compact' : 'comfortable',
           })
           : previous))
+      }, [])
+      const chooseTheme = useCallback(id => {
+        setBoard(previous => (previous
+          ? Object.assign({}, previous, { theme: THEMES[id] ? id : DEFAULT_THEME })
+          : previous))
+        setThemeMenuOpen(false)
       }, [])
       /* Layout edits always land on the active tab, so every pane handler below
          keeps working with a single tab-shaped value. */
@@ -2004,7 +2198,7 @@ const NOOP = () => {}
           snapshot = null
         }
         const tab = makeTab(defaultPanes(snapshot), null, '')
-        setBoard({ tabs: [tab], activeTabId: tab.id, immersive: false, density: 'compact' })
+        setBoard({ tabs: [tab], activeTabId: tab.id, immersive: false, density: 'compact', theme: DEFAULT_THEME })
       }, [board, phase, sessions])
 
       useEffect(() => {
@@ -2044,6 +2238,15 @@ const NOOP = () => {}
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
       }, [maximizedId, immersive, setLayout])
+
+      useEffect(() => {
+        if (!themeMenuOpen) return
+        const onKeyDown = event => {
+          if (event.key === 'Escape') setThemeMenuOpen(false)
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+      }, [themeMenuOpen])
 
       const selectTab = useCallback(id => {
         /* A drop ends with a click in most browsers; don't also switch tabs. */
@@ -2660,6 +2863,34 @@ const NOOP = () => {}
           h('span', { style: styles.spacer }),
           h('div', { style: styles.barActions },
             h('span', { style: styles.versionTag, title: 'dsh-multi-session v' + VERSION }, 'v' + VERSION),
+            h('span', {
+              style: styles.themeAnchor,
+              onBlur: event => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setThemeMenuOpen(false)
+              },
+            },
+              h('button', {
+                type: 'button',
+                style: styles.iconGhost,
+                title: t('themeTitle'),
+                'aria-label': t('themeTitle'),
+                'aria-haspopup': 'menu',
+                'aria-expanded': themeMenuOpen ? 'true' : 'false',
+                onClick: () => setThemeMenuOpen(open => !open),
+              }, h(IconPalette)),
+              themeMenuOpen && h('div', { style: styles.themeMenu, role: 'menu', 'data-theme-menu': '' },
+                THEME_ORDER.map(id => h('button', {
+                  key: id,
+                  type: 'button',
+                  role: 'menuitemradio',
+                  'aria-checked': theme === id ? 'true' : 'false',
+                  'data-theme-option': id,
+                  style: Object.assign({}, styles.themeOption, theme === id ? styles.themeOptionActive : null),
+                  onClick: () => chooseTheme(id),
+                },
+                  h('span', { style: Object.assign({}, styles.swatch, { background: THEMES[id].swatch }) }),
+                  h('span', { style: styles.themeLabel }, t(THEMES[id].labelKey)),
+                  theme === id ? h('span', { style: styles.themeCheck }, '\u2713') : null)))),
             h('button', {
               type: 'button',
               style: styles.iconGhost,
@@ -2754,6 +2985,7 @@ const NOOP = () => {}
           ref: rootRef,
           style: Object.assign({}, styles.root, themeVars, immersive ? styles.immersive : null),
           'data-immersive': immersive ? '' : undefined,
+        'data-theme': theme,
         },
           body,
           workspaceFor

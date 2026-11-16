@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>多会话面板 · 风格样品</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #101010;
+    padding: 18px;
+  }
+  .stage { height: 100%; display: flex; flex-direction: column; gap: 12px; }
+  .switcher {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: #9a9a9a;
+  }
+  .switcher select {
+    font: inherit; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid #333; background: #1b1b1b; color: #eee;
+  }
+
+  /* ---------- panel shell ---------- */
+  .panel {
+    --bg: #1d1d1f;
+    --surface: #262628;
+    --surface2: #303033;
+    --border: rgba(255,255,255,.09);
+    --border-strong: rgba(255,255,255,.16);
+    --text: #ededed;
+    --text2: #a8a8ad;
+    --text3: #6f6f76;
+    --accent: #4d6bfe;
+    --hover: rgba(255,255,255,.06);
+    --code-bg: #1a1a1c;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --font: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    --font-body: var(--font);
+    --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --tab-underline: var(--accent);
+    --composer-bg: var(--surface2);
+
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--text); font-family: var(--font);
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .tabbar {
+    display: flex; align-items: center; gap: 4px; padding: 7px 8px 0;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+  }
+  .tabs { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .tab {
+    position: relative; display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    font-size: 12.5px; color: var(--text2); cursor: default; white-space: nowrap;
+  }
+  .tab.active { background: var(--surface2); color: var(--text); font-weight: 600; }
+  .tab.active::after {
+    content: ""; position: absolute; left: 10px; right: 10px; bottom: 0;
+    height: 2px; border-radius: 1px; background: var(--tab-underline);
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: #58c57a; flex: 0 0 auto; }
+  .tab .x { color: var(--text3); font-size: 12px; }
+  .bar-actions { display: flex; gap: 4px; padding: 0 2px 6px 0; }
+  .ibtn {
+    width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 6px; color: var(--text2); font-size: 13px;
+  }
+  .ibtn:hover { background: var(--hover); color: var(--text); }
+
+  .board { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+  .row { display: flex; gap: 6px; min-height: 0; }
+  .row.top { flex: 1.1 1 0; }
+  .row.bottom { flex: 1 1 0; }
+
+  .pane {
+    flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .pane.active { border-color: var(--border-strong); }
+  .pane.active .pane-head { background: var(--surface2); }
+  .accent-bar { height: 2px; background: transparent; }
+  .pane.active .accent-bar { background: var(--accent); }
+
+  .pane-head {
+    display: flex; align-items: center; gap: 6px; min-height: 34px;
+    padding: 0 8px 0 10px; border-bottom: 1px solid var(--border); font-size: 12.5px;
+  }
+  .grip { color: var(--text3); font-size: 11px; letter-spacing: 1px; }
+  .pane-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .pane-meta { color: var(--text3); font-size: 11px; }
+  .pane-actions { display: flex; gap: 2px; opacity: .55; }
+
+  .body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; font-family: var(--font-body); }
+  .msg { display: flex; flex-direction: column; gap: 4px; }
+  .role { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); font-family: var(--font); }
+  .text { font-size: 15px; line-height: 1.72; color: var(--text); }
+  .text code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .code { margin-top: 4px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text2); white-space: pre; }
+
+  .composer { margin: 0 12px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--composer-bg); padding: 9px 11px; display: flex; align-items: center; gap: 8px; color: var(--text3); font-size: 12.5px; font-family: var(--font); }
+  .composer .send { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; background: var(--accent); opacity: .9; }
+
+  /* ---------- 2. Anthropic ---------- */
+  .panel[data-theme="anthropic"] {
+    --bg: #F0EEE6; --surface: #FAF9F5; --surface2: #EFEDE4;
+    --border: rgba(31,30,27,.12); --border-strong: rgba(31,30,27,.22);
+    --text: #1F1E1B; --text2: #5C5A54; --text3: #8A877C;
+    --accent: #D97757; --hover: rgba(31,30,27,.05);
+    --code-bg: #EFEDE4; --radius: 12px; --radius-sm: 8px;
+    --composer-bg: #FFFFFF;
+    --font-body: Georgia, "Songti SC", "SimSun", serif;
+    color-scheme: light;
+  }
+  .panel[data-theme="anthropic"] .pane { box-shadow: 0 1px 2px rgba(31,30,27,.06); }
+  .panel[data-theme="anthropic"] .tab.active { background: #FAF9F5; }
+  .panel[data-theme="anthropic"] .text { font-size: 15.5px; }
+  .panel[data-theme="anthropic"] .dot { background: #7C9A6D; }
+
+  /* ---------- 3. OpenAI ---------- */
+  .panel[data-theme="openai"] {
+    --bg: #F7F7F8; --surface: #FFFFFF; --surface2: #F1F1F2;
+    --border: #E6E6E7; --border-strong: #D3D3D5;
+    --text: #0D0D0D; --text2: #5D5D5D; --text3: #8F8F8F;
+    --accent: #0D0D0D; --hover: rgba(0,0,0,.05);
+    --code-bg: #F4F4F5; --radius: 16px; --radius-sm: 12px;
+    --composer-bg: #FFFFFF;
+    color-scheme: light;
+  }
+  .panel[data-theme="openai"] .pane { box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .panel[data-theme="openai"] .tab.active { background: #FFFFFF; }
+  .panel[data-theme="openai"] .tab.active::after { background: #0D0D0D; }
+  .panel[data-theme="openai"] .dot { background: #10A37F; }
+
+  /* ---------- 4. Terminal ---------- */
+  .panel[data-theme="terminal"] {
+    --bg: #07090A; --surface: #0B0F0E; --surface2: #101715;
+    --border: #1F3A31; --border-strong: #2E5C4B;
+    --text: #C9F5DC; --text2: #6FBF97; --text3: #3F7D62;
+    --accent: #3DFF88; --hover: rgba(61,255,136,.08);
+    --code-bg: #050807; --radius: 2px; --radius-sm: 2px;
+    --font: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --font-body: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --composer-bg: #050807;
+  }
+  .panel[data-theme="terminal"] .pane-head { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+  .panel[data-theme="terminal"] .pane-title::before { content: "▍ "; color: var(--accent); }
+  .panel[data-theme="terminal"] .role::before { content: "["; }
+  .panel[data-theme="terminal"] .role::after { content: "]"; }
+  .panel[data-theme="terminal"] .text { font-size: 13.5px; line-height: 1.62; }
+  .panel[data-theme="terminal"] .composer::before { content: ">"; color: var(--accent); }
+  .panel[data-theme="terminal"] .tab.active::after { height: 1px; left: 0; right: 0; }
+
+  /* ---------- 5. Terminal（琥珀） ---------- */
+  .panel[data-theme="terminal-amber"] {
+    --bg: #0A0805; --surface: #100C07; --surface2: #17110A;
+    --border: #3A2A12; --border-strong: #5C4319;
+    --text: #FFD9A0; --text2: #C79A55; --text3: #7E6132;
+    --accent: #FFB000; --hover: rgba(255,176,0,.08);
+    --code-bg: #070503; --radius: 2px; --radius-sm: 2px;
+    --font: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --font-body: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --composer-bg: #070503;
+  }
+  .panel[data-theme="terminal-amber"] .pane-head { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+  .panel[data-theme="terminal-amber"] .pane-title::before { content: "▍ "; color: var(--accent); }
+  .panel[data-theme="terminal-amber"] .role::before { content: "["; }
+  .panel[data-theme="terminal-amber"] .role::after { content: "]"; }
+  .panel[data-theme="terminal-amber"] .text { font-size: 13.5px; line-height: 1.62; }
+  .panel[data-theme="terminal-amber"] .composer::before { content: ">"; color: var(--accent); }
+  .panel[data-theme="terminal-amber"] .tab.active::after { height: 1px; left: 0; right: 0; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="switcher">
+      <label for="theme">风格</label>
+      <select id="theme">
+        <option value="dsh">DeepSeek Harness（默认）</option>
+        <option value="anthropic">Anthropic / Claude</option>
+        <option value="openai">OpenAI / ChatGPT</option>
+        <option value="terminal">Terminal（绿磷光）</option>
+        <option value="terminal-amber">Terminal（琥珀）</option>
+      </select>
+      <span id="hint"></span>
+    </div>
+
+    <div class="panel" id="panel" data-theme="dsh">
+      <div class="tabbar">
+        <div class="tabs">
+          <div class="tab active"><span class="dot"></span>重构多会话布局<span class="x">×</span></div>
+          <div class="tab">插件市场调研<span class="x">×</span></div>
+          <div class="tab">+</div>
+        </div>
+        <div class="bar-actions">
+          <span class="ibtn" title="密度">◧</span>
+          <span class="ibtn" title="沉浸全屏">⛶</span>
+          <span class="ibtn" title="均分">≡</span>
+          <span class="ibtn" title="添加会话格">＋</span>
+        </div>
+      </div>
+
+      <div class="board">
+        <div class="row top">
+          <div class="pane active">
+            <div class="accent-bar"></div>
+            <div class="pane-head">
+              <span class="grip">⠿</span>
+              <span class="pane-title">重构多会话布局</span>
+              <span class="pane-meta">运行中</span>
+              <span class="pane-actions">▁ ▢ ×</span>
+            </div>
+            <div class="body">
+              <div class="msg">
+                <div class="role">You</div>
+                <div class="text">把分隔条改成 tmux 那种：拖一条线，两边的格子一起变。</div>
+              </div>
+              <div class="msg">
+                <div class="role">Assistant</div>
+                <div class="text">明白。现在是行/列两级权重：拖行间的横分隔条，整行一起变高；拖行内的竖分隔条，只有这两格互补。</div>
+                <div class="code">rowWeights = [1.4, 1]
+colWeights = { b: 0.6, c: 0.4 }</div>
+              </div>
+            </div>
+            <div class="composer">问点什么，或者拖一个会话进来…<span class="send"></span></div>
+          </div>
+        </div>
+
+        <div class="row bottom">
+          <div class="pane">
+            <div class="accent-bar"></div>
+            <div class="pane-head">
+              <span class="grip">⠿</span>
+              <span class="pane-title">插件市场调研</span>
+              <span class="pane-meta">空闲</span>
+              <span class="pane-actions">▁ ▢ ×</span>
+            </div>
+            <div class="body">
+              <div class="msg">
+                <div class="role">Assistant</div>
+                <div class="text">收录条件只有四条：清单里有 <code>dsh.bundle.patch</code>、有真实代码、仓库满一天、带 <code>dsh-plugin</code> topic。</div>
+              </div>
+            </div>
+            <div class="composer">继续这个会话…<span class="send"></span></div>
+          </div>
+          <div class="pane">
+            <div class="accent-bar"></div>
+            <div class="pane-head">
+              <span class="grip">⠿</span>
+              <span class="pane-title">标签页排序</span>
+              <span class="pane-meta">空闲</span>
+              <span class="pane-actions">▁ ▢ ×</span>
+            </div>
+            <div class="body">
+              <div class="msg">
+                <div class="role">Assistant</div>
+                <div class="text">拖动标签时只在松手那一刻重排数组，<code>activeTabId</code> 不动，所以对话不会被重建。</div>
+              </div>
+            </div>
+            <div class="composer">继续这个会话…<span class="send"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const params = new URLSearchParams(location.search)
+  const panel = document.getElementById('panel')
+  const select = document.getElementById('theme')
+  const hints = {
+    dsh: '平台原生配色，跟其他页面一致',
+    anthropic: '暖白纸面 + 赭红强调 + 衬线正文',
+    openai: '浅色、留白、近黑强调，几乎无装饰',
+    terminal: '绿磷光等宽字体、方角、[状态] 标签',
+  }
+  function apply(theme) {
+    panel.dataset.theme = theme
+    select.value = theme
+    document.getElementById('hint').textContent = hints[theme] || ''
+    document.documentElement.style.colorScheme = theme === 'openai' ? 'light' : 'dark'
+  }
+  select.addEventListener('change', () => apply(select.value))
+  apply(params.get('theme') || 'dsh')
+</script>
+</body>
+</html>
