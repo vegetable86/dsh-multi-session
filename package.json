@@ -1,6 +1,6 @@
 {
     "name":  "@local/dsh-multi-session",
-    "version": "0.18.1",
+    "version": "0.18.2",
     "description":  "Multi-session split view panel for DeepSeek Harness",
     "type":  "module",
     "keywords":  [
