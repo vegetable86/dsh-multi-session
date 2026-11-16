@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.13.0'
+    const VERSION = '0.14.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -45,6 +45,26 @@ const NOOP = () => {}
     }
     const DensityContext = React.createContext(METRICS.compact)
     const useMetrics = () => React.useContext(DensityContext)
+
+    /** Animations are decoration: honour the OS setting instead of fighting it. */
+    const reduceMotion = () => {
+      try {
+        return typeof window !== 'undefined' && !!window.matchMedia
+          && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      } catch (error) {
+        return false
+      }
+    }
+
+    /** Small helper so every animation uses the same curve and duration. */
+    const animateIn = (node, keyframes, duration) => {
+      try {
+        if (!node || !node.animate || reduceMotion()) return
+        node.animate(keyframes, { duration, easing: 'cubic-bezier(.2,.8,.2,1)' })
+      } catch (error) {
+        /* Animation is best-effort. */
+      }
+    }
 
     const ZH = {
       panelLabel: '多会话',
@@ -201,13 +221,28 @@ const NOOP = () => {}
       /* Browser-like tab strip: one tab = one whole tiling board. */
       tabBar: {
         display: 'flex',
-        alignItems: 'stretch',
+        alignItems: 'center',
         gap: 2,
         flex: '0 0 auto',
-        padding: '4px 6px 0',
-        overflowX: 'auto',
+        padding: '4px 6px',
+        overflow: 'hidden',
         borderBottom: '1px solid var(--dsw-alias-border-l1)',
       },
+      tabScroll: {
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 2,
+        flex: '1 1 auto',
+        minWidth: 0,
+        overflowX: 'auto',
+      },
+      barActions: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 3,
+        flex: '0 0 auto',
+      },
+      addPaneButton: { height: 22, padding: '0 7px', fontSize: 11.5 },
       tab: {
         position: 'relative',
         display: 'inline-flex',
@@ -372,6 +407,12 @@ const NOOP = () => {}
         transition: 'background 120ms ease',
       },
       paneHeaderActive: { background: 'var(--dsw-alias-bg-base)' },
+      headerActions: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        transition: 'opacity 140ms ease',
+      },
       gripper: {
         display: 'inline-flex',
         alignItems: 'center',
@@ -1220,8 +1261,16 @@ const NOOP = () => {}
     function WorkspacePicker({ t, workspaces, busy, onPick, onCancel }) {
       const items = workspaces && Array.isArray(workspaces.items) ? workspaces.items.slice() : []
       const ready = !!(workspaces && workspaces.phase === 'ready')
+      const cardRef = useRef(null)
+      useEffect(() => {
+        animateIn(cardRef.current, [
+          { opacity: 0, transform: 'scale(.97)' },
+          { opacity: 1, transform: 'none' },
+        ], 160)
+      }, [])
       return h('div', { style: styles.dialogBackdrop, onClick: onCancel },
         h('div', {
+          ref: cardRef,
           style: styles.dialogCard,
           role: 'dialog',
           'aria-label': t('chooseWorkspace'),
@@ -1265,7 +1314,7 @@ const NOOP = () => {}
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, active, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
+    function PaneHeader({ pane, maximized, active, showActions, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
       const m = useMetrics()
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
@@ -1307,11 +1356,17 @@ const NOOP = () => {}
           h('span', { style: styles.titleText }, title),
           h(IconChevron)),
         h('span', { style: styles.spacer }),
-        canOpenMain ? h(IconButton, { label: t('openInMain'), onClick: onOpenMain }, h(IconOpenMain)) : null,
-        h(IconButton, { label: t('minimize'), onClick: onMinimize }, h(IconMinimize)),
-        h(IconButton, { label: maximized ? t('restore') : t('maximize'), onClick: onToggleMax },
-          maximized ? h(IconRestore) : h(IconMaximize)),
-        h(IconButton, { label: t('closePane'), onClick: onClose, disabled: !canClose }, h(IconClose)))
+        h('span', {
+          style: Object.assign({}, styles.headerActions, {
+            opacity: showActions === false ? 0 : 1,
+            pointerEvents: showActions === false ? 'none' : 'auto',
+          }),
+        },
+          canOpenMain ? h(IconButton, { label: t('openInMain'), onClick: onOpenMain }, h(IconOpenMain)) : null,
+          h(IconButton, { label: t('minimize'), onClick: onMinimize }, h(IconMinimize)),
+          h(IconButton, { label: maximized ? t('restore') : t('maximize'), onClick: onToggleMax },
+            maximized ? h(IconRestore) : h(IconMaximize)),
+          h(IconButton, { label: t('closePane'), onClick: onClose, disabled: !canClose }, h(IconClose))))
     }
 
     /**
@@ -1319,6 +1374,13 @@ const NOOP = () => {}
      * stays visible there and clicking it brings the pane back.
      */
     function MinimizedChip({ pane, useSessions, t, canClose, onRestore, onClose }) {
+      const chipRef = useRef(null)
+      useEffect(() => {
+        animateIn(chipRef.current, [
+          { opacity: 0, transform: 'scale(.88)' },
+          { opacity: 1, transform: 'none' },
+        ], 220)
+      }, [])
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
         ? row.displayTitle
@@ -1327,6 +1389,7 @@ const NOOP = () => {}
           : t('noSession')
       const running = !!(row && row.running)
       return h('div', {
+        ref: chipRef,
         style: styles.chip,
         'data-minimized-id': pane.id,
         title: t('restore'),
@@ -1573,11 +1636,25 @@ const NOOP = () => {}
         onDragStart, onDragEnd,
       } = props
       const m = useMetrics()
-      return h('div', { style: Object.assign({}, styles.pane, { borderRadius: m.radius }) },
+      const [hover, setHover] = useState(false)
+      const shellRef = useRef(null)
+      useEffect(() => {
+        animateIn(shellRef.current, [
+          { opacity: 0, transform: 'translateY(6px)' },
+          { opacity: 1, transform: 'none' },
+        ], 220)
+      }, [])
+      return h('div', {
+        ref: shellRef,
+        style: Object.assign({}, styles.pane, { borderRadius: m.radius }),
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false),
+      },
         h(PaneHeader, {
           pane,
           maximized,
           active,
+          showActions: hover || active,
           canClose,
           canOpenMain,
           useSessions,
@@ -1754,6 +1831,7 @@ const NOOP = () => {}
       const [workspaceFor, setWorkspaceFor] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
       const [draft, setDraft] = useState(null)
+      const [splitAxis, setSplitAxis] = useState(null)
       const [dragOverId, setDragOverId] = useState(null)
       const [tabDrop, setTabDrop] = useState(null)
       const [mountedTabs, setMountedTabs] = useState([])
@@ -1763,6 +1841,14 @@ const NOOP = () => {}
       const dragPaneRef = useRef(null)
       const tabDragRef = useRef(null)
       const tabDragEndAt = useRef(0)
+
+      /* Switching tabs cross-fades; the conversation itself is never re-mounted. */
+      const activeTabKey = board ? board.activeTabId : null
+      useEffect(() => {
+        if (!activeTabKey || !rootRef.current) return
+        const node = rootRef.current.querySelector('[data-board-id="' + activeTabKey + '"]')
+        animateIn(node, [{ opacity: 0 }, { opacity: 1 }], 140)
+      }, [activeTabKey])
       const phase = useSessions(state => state.phase)
       /* ui-workspace supplies this global hook; fall back rather than blank the panel. */
       const readWorkspaces = typeof useWorkspaces === 'function' ? useWorkspaces : selector => selector(null)
@@ -2129,6 +2215,7 @@ const NOOP = () => {}
         let nextRowWeights = baseRows
         let nextColWeights = baseCols
         dragRef.current = { axis, index }
+        setSplitAxis(axis)
 
         const onMove = moveEvent => {
           if (!dragRef.current) return
@@ -2156,6 +2243,7 @@ const NOOP = () => {}
           window.removeEventListener('pointerup', finish)
           window.removeEventListener('pointercancel', finish)
           dragRef.current = null
+          setSplitAxis(null)
           setDraft(null)
           if (!moved) return
           setLayout(previous => (previous
@@ -2315,8 +2403,12 @@ const NOOP = () => {}
               isMax
                 /* The maximised tile covers the host instead of being re-parented, so the
                    conversation (scroll position, stream) survives the toggle. */
-                ? { position: 'absolute', top: metrics.pad, left: metrics.pad, right: metrics.pad, bottom: metrics.pad, zIndex: 20, visibility: 'visible' }
-                : { flexGrow: colWeights[pane.id] || 1, flexBasis: 0 },
+                ? { position: 'absolute', top: metrics.pad, left: metrics.pad, right: metrics.pad, bottom: metrics.pad, zIndex: 20, visibility: 'visible', boxShadow: '0 18px 48px rgba(0,0,0,.28)' }
+                : {
+                  flexGrow: colWeights[pane.id] || 1,
+                  flexBasis: 0,
+                  transition: 'flex-grow 280ms cubic-bezier(.2,.8,.2,1)',
+                },
             ),
           }, h(PaneShell, {
             pane,
@@ -2368,7 +2460,7 @@ const NOOP = () => {}
           })
           view.push(h('div', {
             key: 'row-' + entry.index,
-            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[entry.index] || 1 }),
+            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[entry.index] || 1, transition: 'flex-grow 280ms cubic-bezier(.2,.8,.2,1)' }),
           }, cells))
           if (position < grid.length - 1) {
             view.push(h(Splitter, {
@@ -2460,6 +2552,7 @@ const NOOP = () => {}
             },
             onDrop: dropTabAtEnd,
           },
+          h('div', { style: styles.tabScroll },
             board.tabs.map(tab => h(TabButton, {
               key: tab.id,
               tab,
@@ -2483,19 +2576,16 @@ const NOOP = () => {}
               'aria-label': t('newTab'),
               onClick: addTab,
             }, '+')),
-          h('div', { style: Object.assign({}, styles.toolbar, { padding: metrics.toolbarPad, gap: metrics.toolbarGap }) },
-            h('span', { style: styles.toolbarTitle }, t('panelLabel')),
-            h('span', { style: styles.toolbarMeta, title: 'dsh-multi-session ' + VERSION }, 'v' + VERSION),
-            h('span', { style: styles.toolbarMeta }, panes.length + ' ' + t('paneCount')),
-            h('span', { style: styles.spacer }),
+          h('span', { style: styles.spacer }),
+          h('div', { style: styles.barActions },
             h('button', {
               type: 'button',
-              style: styles.ghostButton,
+              style: styles.iconGhost,
               title: t('densityHint'),
               'aria-label': density === 'comfortable' ? t('densityCompact') : t('densityComfortable'),
               'aria-pressed': density === 'comfortable' ? 'true' : 'false',
               onClick: toggleDensity,
-            }, density === 'comfortable' ? t('densityCompact') : t('densityComfortable')),
+            }, density === 'comfortable' ? '\u25c9' : '\u25d0'),
             h('button', {
               type: 'button',
               style: styles.iconGhost,
@@ -2506,23 +2596,25 @@ const NOOP = () => {}
             h('button', {
               type: 'button',
               style: styles.iconGhost,
-              title: immersive ? t('exitImmersive') : t('immersive') + ' — ' + t('immersiveHint'),
+              title: immersive ? t('exitImmersive') : t('immersive') + ' \u2014 ' + t('immersiveHint'),
               'aria-label': immersive ? t('exitImmersive') : t('immersive'),
               'aria-pressed': immersive ? 'true' : 'false',
               onClick: toggleImmersive,
             }, h(immersive ? IconCollapse : IconExpand)),
             h('button', {
               type: 'button',
-              style: styles.ghostButton,
+              style: styles.iconGhost,
               title: t('autoArrange'),
+              'aria-label': t('autoArrange'),
               onClick: autoArrange,
-            }, t('autoArrange')),
+            }, '\u25a6'),
             h('button', {
               type: 'button',
-              style: styles.ghostButton,
+              style: Object.assign({}, styles.ghostButton, styles.addPaneButton),
               title: t('addPane'),
+              'aria-label': t('addPane'),
               onClick: addPane,
-            }, '+ ' + t('addPane'))),
+            }, '+ ' + t('addPane')))),
           hintOpen && h('div', { style: styles.hintBar, 'data-hint-bar': '' },
             h('span', { style: styles.hintText }, t('hintText')),
             h('button', {
@@ -2546,7 +2638,7 @@ const NOOP = () => {}
             }))),
           h('div', {
             ref: hostRef,
-            style: Object.assign({}, styles.host, { padding: metrics.pad }),
+            style: Object.assign({}, styles.host, { padding: metrics.pad }, splitAxis ? { cursor: splitAxis === 'row' ? 'row-resize' : 'col-resize', userSelect: 'none' } : null),
             'data-multisession-host': '',
           },
             mountedIds.map(id => {

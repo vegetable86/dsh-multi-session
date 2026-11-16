@@ -312,3 +312,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 持久化：挂载集合是会话内的临时状态，不写入 v7 存储；布局本身仍只记录页签与各自的格子。
 - 测试：`render-smoke` 的页签用例改为断言「切换后旧板仍在 DOM 里且 `display:none`」「旧板里的格子节点与切换前是同一个对象」「同时挂载的板不超过 3 个」。
 - 不做：可配置的挂载数量、给休眠板降频渲染（后续可结合 `requestIdleCallback`）、跨页签拖格子。
+
+## 27. v0.14：更安静的外壳与动效
+
+- 需求：用户觉得面板「不好看」，且草稿阶段明确「风格都差不多，主要是交互的动画」「同时界面简洁一些」。
+- 简洁：去掉独立工具条，标签、`+`、密度、提示、全屏、均分、添加格子并在标签栏一行；格子标题栏的操作按钮只在悬停或该格处于活动状态时出现（`showActions = hover || active`）。
+- 动效统一入口：`animateIn(node, keyframes, duration)` 用 Web Animations API，曲线 `cubic-bezier(.2,.8,.2,1)`；先看 `prefers-reduced-motion`，系统要求减少动态时直接跳过，不注入额外样式表。
+- 规格：格子入场 220ms 上移 6px；标签切换 140ms 交叉淡入；工作区对话框 160ms `scale(.97)`；最小化胶囊 220ms `scale(.88)`；分隔条拖动 280ms `flex-grow` 过渡（拖动中不加过渡，跟手）。
+- 拖拽反馈：拖动分隔条时宿主光标切到 `row-resize` / `col-resize` 并禁用选择；松手后才把权重写回布局，拖动过程只改 `draft`。
+- 测试：`render-smoke` 断言拖动时分隔条宿主的光标为 `row-resize`；原有 18 项注册断言与全部渲染断言保持全绿。
+- 不做：消息气泡、输入框等原生对话内容的样式（那属于 `conversation.content`，插件不碰）；可配置的动效时长。

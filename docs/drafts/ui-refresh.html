@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>多会话面板 · 视觉草稿</title>
+<style>
+  :root {
+    --font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    --mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--app-bg);
+    color: var(--fg);
+    overflow: hidden;
+  }
+
+  /* ---------- shared skeleton ---------- */
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 24px 26px;
+    gap: 0;
+  }
+  .frame-label {
+    display: flex; align-items: baseline; gap: 10px;
+    margin: 0 2px 10px;
+    font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+  .frame-label b { font-size: 13px; letter-spacing: .06em; color: var(--fg); font-weight: 650; }
+  .frame-label span { font-size: 12px; text-transform: none; letter-spacing: 0; }
+
+  .panel {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    border-radius: var(--panel-radius);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow);
+    overflow: hidden;
+    backdrop-filter: var(--panel-blur);
+  }
+
+  /* tab strip */
+  .tabs {
+    display: flex; align-items: flex-end; gap: 4px;
+    padding: 8px 10px 0;
+    background: var(--tabs-bg);
+    border-bottom: 1px solid var(--hairline);
+    min-height: 44px;
+  }
+  .tab {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px 9px;
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    cursor: default;
+    transition: background .16s ease, color .16s ease;
+  }
+  .tab:hover { background: var(--hover); color: var(--fg); }
+  .tab[aria-selected="true"] { color: var(--fg); background: var(--tab-active-bg); }
+  .tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .tab .dot.live { animation: pulse 1.8s ease-in-out infinite; }
+  .tab .x { opacity: 0; font-size: 11px; color: var(--fg-faint); transition: opacity .14s ease; }
+  .tab:hover .x, .tab[aria-selected="true"] .x { opacity: 1; }
+  .tab .underline {
+    position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+    border-radius: 2px; background: var(--accent);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform .22s cubic-bezier(.2,0,0,1);
+  }
+  .tab[aria-selected="true"] .underline { transform: scaleX(1); }
+  .tab-add {
+    margin-left: 2px; margin-bottom: 6px;
+    width: 26px; height: 26px; border-radius: 8px;
+    display: grid; place-items: center;
+    color: var(--fg-muted); font-size: 15px;
+    transition: background .16s ease, color .16s ease;
+  }
+  .tab-add:hover { background: var(--hover); color: var(--fg); }
+
+  /* toolbar */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--toolbar-bg);
+    font-size: 12.5px;
+  }
+  .toolbar .title { font-weight: 650; letter-spacing: .01em; }
+  .toolbar .meta { font-size: 11.5px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+  .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px;
+    border-radius: var(--btn-radius);
+    border: 1px solid transparent;
+    color: var(--fg-muted); font-size: 12px;
+    background: transparent;
+    transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+  }
+  .btn:hover { background: var(--hover); color: var(--fg); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary {
+    background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-border);
+  }
+  .btn.primary:hover { background: var(--accent-soft-2); }
+  .icon-btn {
+    width: 28px; padding: 0; justify-content: center;
+  }
+
+  /* board */
+  .board {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-rows: var(--row-a) 8px var(--row-b);
+    grid-template-columns: 1fr;
+    padding: 8px;
+    gap: 0;
+    background: var(--board-bg);
+  }
+  .row { display: grid; min-height: 0; }
+  .row.top { grid-template-columns: 1fr; }
+  .row.bottom { grid-template-columns: 1fr 8px 1fr; }
+  .splitter-h { cursor: row-resize; position: relative; }
+  .splitter-v { cursor: col-resize; position: relative; }
+  .splitter-h::after, .splitter-v::after {
+    content: ""; position: absolute; border-radius: 3px;
+    background: var(--splitter); transition: background .18s ease, transform .18s ease;
+  }
+  .splitter-h::after { left: 28%; right: 28%; top: 3px; height: 2px; }
+  .splitter-v::after { top: 28%; bottom: 28%; left: 3px; width: 2px; }
+  .splitter-h:hover::after, .splitter-v:hover::after { background: var(--accent); transform: scaleY(1.0) scaleX(1.0); box-shadow: 0 0 0 4px var(--accent-glow); }
+
+  .pane {
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    background: var(--pane-bg);
+    border: 1px solid var(--pane-border);
+    border-radius: var(--pane-radius);
+    box-shadow: var(--pane-shadow);
+    overflow: hidden;
+    animation: rise .34s cubic-bezier(.2,0,0,1) both;
+  }
+  .pane:nth-child(2) { animation-delay: .05s; }
+  .pane.active { border-color: var(--pane-border-active); box-shadow: var(--pane-shadow-active); }
+  .pane.active .pane-head { box-shadow: inset 0 2px 0 var(--accent); }
+
+  .pane-head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 8px 7px 10px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--pane-head-bg);
+    font-size: 12.5px;
+    transition: background .18s ease;
+  }
+  .pane.active .pane-head { background: var(--pane-head-active); }
+  .grip {
+    display: inline-grid; grid-template-columns: repeat(2, 3px); gap: 3px;
+    opacity: .55;
+  }
+  .grip i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; display: block; }
+  .status { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .status.live { animation: pulse 1.8s ease-in-out infinite; }
+  .pane-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pane-sub { color: var(--fg-faint); font-size: 11px; white-space: nowrap; }
+  .pane-actions { margin-left: auto; display: flex; gap: 2px; }
+  .pane-actions .icon {
+    width: 24px; height: 22px; border-radius: 6px;
+    display: grid; place-items: center; color: var(--fg-muted);
+    transition: background .15s ease, color .15s ease;
+  }
+  .pane-actions .icon:hover { background: var(--hover); color: var(--fg); }
+
+  .messages {
+    flex: 1; min-height: 0; overflow: hidden;
+    padding: 14px 14px 6px;
+    display: flex; flex-direction: column; gap: 12px;
+    background: var(--messages-bg);
+  }
+  .msg { display: flex; flex-direction: column; gap: 5px; max-width: 94%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .who { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-faint); }
+  .bubble {
+    padding: 9px 11px; border-radius: var(--bubble-radius);
+    font-size: 12.5px; line-height: 1.62;
+    background: var(--bubble-user-bg); color: var(--bubble-user-fg);
+    border: 1px solid var(--bubble-user-border);
+  }
+  .msg.assistant .bubble { background: transparent; border-color: transparent; padding: 2px 0; color: var(--fg); }
+  .code {
+    margin-top: 7px; padding: 9px 10px; border-radius: var(--code-radius);
+    background: var(--code-bg); border: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--code-fg);
+  }
+  .code .k { color: var(--code-key); }
+  .code .s { color: var(--code-str); }
+  .stream { display: inline-flex; gap: 4px; align-items: center; margin-top: 8px; color: var(--fg-faint); font-size: 11.5px; }
+  .stream i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  .stream i:nth-child(2) { animation-delay: .18s; }
+  .stream i:nth-child(3) { animation-delay: .36s; }
+  .shimmer {
+    display: block; height: 9px; border-radius: 5px; margin-top: 6px;
+    background: linear-gradient(90deg, var(--shimmer-a) 0%, var(--shimmer-b) 40%, var(--shimmer-a) 80%);
+    background-size: 220% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  .composer {
+    margin: 8px 10px 10px;
+    border-radius: var(--composer-radius);
+    border: 1px solid var(--hairline);
+    background: var(--composer-bg);
+    padding: 9px 10px;
+    display: flex; flex-direction: column; gap: 8px;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .composer:hover { border-color: var(--pane-border-active); }
+  .composer .line { font-size: 12.5px; color: var(--fg-faint); }
+  .composer .row2 { display: flex; align-items: center; gap: 6px; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--fg-muted); border: 1px solid var(--hairline);
+  }
+  .send {
+    margin-left: auto; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: var(--on-accent);
+    display: grid; place-items: center; font-size: 12px;
+    box-shadow: var(--accent-shadow);
+    transition: transform .16s cubic-bezier(.2,0,0,1.4), box-shadow .16s ease;
+  }
+  .send:hover { transform: scale(1.08); }
+
+  /* capsules / hint row */
+  .hint {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px; padding: 6px 10px;
+    border-radius: 9px;
+    background: var(--hint-bg); border: 1px solid var(--hairline);
+    color: var(--fg-muted); font-size: 11.5px;
+    animation: slide-down .32s cubic-bezier(.2,0,0,1) both;
+  }
+  .hint b { color: var(--fg); font-weight: 600; }
+  .hint .dismiss { margin-left: auto; color: var(--fg-faint); }
+
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.86); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
+  @keyframes blink { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
+  @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -80% 0; } }
+  @keyframes slide-down { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  /* ============================================================
+     A · 静奢玻璃 Quiet Glass
+     ============================================================ */
+  body[data-variant="glass"] {
+    --app-bg: #0e1116;
+    --fg: #e7eaf0; --fg-muted: #a7aebc; --fg-faint: #6d7482;
+    --panel-bg: rgba(20, 24, 31, .92);
+    --panel-border: rgba(255,255,255,.07);
+    --panel-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 24px 60px rgba(0,0,0,.45);
+    --panel-blur: blur(14px);
+    --panel-radius: 16px;
+    --tabs-bg: rgba(255,255,255,.02);
+    --toolbar-bg: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.01));
+    --hairline: rgba(255,255,255,.075);
+    --hover: rgba(255,255,255,.055);
+    --tab-active-bg: rgba(255,255,255,.045);
+    --tab-radius: 10px;
+    --board-bg: #101419;
+    --pane-bg: #171c24;
+    --pane-border: rgba(255,255,255,.06);
+    --pane-border-active: rgba(120,170,255,.28);
+    --pane-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 20px rgba(0,0,0,.18);
+    --pane-shadow-active: 0 1px 0 rgba(255,255,255,.05) inset, 0 10px 28px rgba(0,0,0,.28), 0 0 0 1px rgba(120,170,255,.10);
+    --pane-radius: 13px;
+    --pane-head-bg: rgba(255,255,255,.012);
+    --pane-head-active: rgba(120,170,255,.08);
+    --messages-bg: transparent;
+    --bubble-user-bg: rgba(120,170,255,.10);
+    --bubble-user-border: rgba(120,170,255,.16);
+    --bubble-user-fg: #dfe7f5;
+    --bubble-radius: 12px;
+    --code-bg: rgba(255,255,255,.03);
+    --code-fg: #c6cedb; --code-key: #8fb8ff; --code-str: #8fd6a8;
+    --composer-bg: rgba(255,255,255,.022);
+    --composer-radius: 11px;
+    --accent: #6ea0ff; --accent-ink: #cfe0ff; --accent-soft: rgba(110,160,255,.13); --accent-soft-2: rgba(110,160,255,.2);
+    --accent-border: rgba(110,160,255,.25); --accent-glow: rgba(110,160,255,.12);
+    --accent-shadow: 0 4px 14px rgba(110,160,255,.35);
+    --on-accent: #0b1220;
+    --ok: #57d18a;
+    --btn-radius: 8px;
+    --chip-bg: rgba(255,255,255,.04);
+    --splitter: rgba(255,255,255,.12);
+    --shimmer-a: rgba(255,255,255,.045); --shimmer-b: rgba(255,255,255,.11);
+    --hint-bg: rgba(110,160,255,.06);
+    --row-a: 1.06fr; --row-b: 1fr;
+  }
+
+  /* ============================================================
+     B · 工程蓝图 Blueprint
+     ============================================================ */
+  body[data-variant="blueprint"] {
+    --app-bg: #f4f6f9;
+    --fg: #10151c; --fg-muted: #3f4a5a; --fg-faint: #6b7787;
+    --panel-bg: #ffffff;
+    --panel-border: #dde3eb;
+    --panel-shadow: 0 1px 2px rgba(16,24,40,.04), 0 18px 40px rgba(16,24,40,.08);
+    --panel-blur: none;
+    --panel-radius: 10px;
+    --tabs-bg: #fbfcfe;
+    --toolbar-bg: #ffffff;
+    --hairline: #e6ebf2;
+    --hover: #eef3fa;
+    --tab-active-bg: #ffffff;
+    --tab-radius: 6px;
+    --board-bg: #f7f9fc;
+    --pane-bg: #ffffff;
+    --pane-border: #e2e8f1;
+    --pane-border-active: #a8c0ff;
+    --pane-shadow: 0 1px 2px rgba(16,24,40,.05);
+    --pane-shadow-active: 0 0 0 1px rgba(47,107,255,.35), 0 6px 16px rgba(47,107,255,.10);
+    --pane-radius: 6px;
+    --pane-head-bg: #fbfcfe;
+    --pane-head-active: #f2f6ff;
+    --messages-bg: #ffffff;
+    --bubble-user-bg: #2f6bff; --bubble-user-border: #2f6bff; --bubble-user-fg: #ffffff;
+    --bubble-radius: 4px;
+    --code-bg: #f5f7fb; --code-fg: #23303f; --code-key: #2f6bff; --code-str: #0f8a5f;
+    --composer-bg: #ffffff; --composer-radius: 4px;
+    --accent: #2f6bff; --accent-ink: #1b4bd8; --accent-soft: #e8efff; --accent-soft-2: #dbe7ff;
+    --accent-border: #b9cdff; --accent-glow: rgba(47,107,255,.12);
+    --accent-shadow: 0 3px 8px rgba(47,107,255,.25);
+    --on-accent: #ffffff;
+    --ok: #12a06a;
+    --btn-radius: 5px;
+    --chip-bg: #f2f5fa;
+    --splitter: #cfd8e5;
+    --shimmer-a: #eef2f8; --shimmer-b: #dfe7f2;
+    --hint-bg: #f2f6ff;
+    --row-a: 1fr; --row-b: 1fr;
+  }
+  body[data-variant="blueprint"] .frame-label { font-family: var(--mono); }
+  body[data-variant="blueprint"] .pane-title { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+  body[data-variant="blueprint"] .pane-head { border-bottom-style: dashed; }
+  body[data-variant="blueprint"] .board {
+    background-image: linear-gradient(rgba(47,107,255,.045) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(47,107,255,.045) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  body[data-variant="blueprint"] .tab .underline { left: 6px; right: 6px; height: 2px; border-radius: 0; }
+
+  /* ============================================================
+     C · 灵动柔光 Soft Motion
+     ============================================================ */
+  body[data-variant="soft"] {
+    --app-bg: #101322;
+    --fg: #f0eefc; --fg-muted: #b3aed0; --fg-faint: #7d779c;
+    --panel-bg: rgba(26, 25, 46, .9);
+    --panel-border: rgba(180,160,255,.12);
+    --panel-shadow: 0 30px 80px rgba(60,20,120,.35);
+    --panel-blur: blur(18px) saturate(140%);
+    --panel-radius: 20px;
+    --tabs-bg: rgba(255,255,255,.025);
+    --toolbar-bg: linear-gradient(180deg, rgba(180,150,255,.08), rgba(255,255,255,0));
+    --hairline: rgba(190,175,255,.12);
+    --hover: rgba(190,175,255,.10);
+    --tab-active-bg: linear-gradient(180deg, rgba(190,160,255,.16), rgba(190,160,255,.06));
+    --tab-radius: 12px;
+    --board-bg: #141226;
+    --pane-bg: linear-gradient(180deg, #1c1934, #191630);
+    --pane-border: rgba(190,170,255,.12);
+    --pane-border-active: rgba(190,150,255,.45);
+    --pane-shadow: 0 10px 26px rgba(20,10,50,.45);
+    --pane-shadow-active: 0 14px 34px rgba(20,10,50,.55), 0 0 0 1px rgba(190,150,255,.22), 0 0 40px rgba(150,90,255,.18);
+    --pane-radius: 18px;
+    --pane-head-bg: rgba(255,255,255,.02);
+    --pane-head-active: linear-gradient(90deg, rgba(190,150,255,.12), rgba(120,200,255,.06));
+    --messages-bg: transparent;
+    --bubble-user-bg: linear-gradient(135deg, rgba(190,150,255,.22), rgba(120,200,255,.14));
+    --bubble-user-border: rgba(190,170,255,.22);
+    --bubble-user-fg: #f4f0ff;
+    --bubble-radius: 16px;
+    --code-bg: rgba(255,255,255,.035);
+    --code-fg: #d9d4f2; --code-key: #c4a4ff; --code-str: #8fe0c8;
+    --composer-bg: rgba(255,255,255,.03);
+    --composer-radius: 14px;
+    --accent: #a78bfa; --accent-ink: #e6dcff; --accent-soft: rgba(167,139,250,.16); --accent-soft-2: rgba(167,139,250,.24);
+    --accent-border: rgba(167,139,250,.3); --accent-glow: rgba(167,139,250,.16);
+    --accent-shadow: 0 6px 18px rgba(167,139,250,.45);
+    --on-accent: #17102b;
+    --ok: #6ee7b7;
+    --btn-radius: 10px;
+    --chip-bg: rgba(255,255,255,.05);
+    --splitter: rgba(190,175,255,.22);
+    --shimmer-a: rgba(255,255,255,.05); --shimmer-b: rgba(190,160,255,.18);
+    --hint-bg: linear-gradient(90deg, rgba(167,139,250,.10), rgba(110,200,255,.06));
+    --row-a: 1.1fr; --row-b: 1fr;
+  }
+  body[data-variant="soft"] .pane { animation: rise .5s cubic-bezier(.2,1.2,.3,1) both; }
+  body[data-variant="soft"] .tab .underline { height: 3px; border-radius: 3px; background: linear-gradient(90deg, #a78bfa, #67e8f9); }
+  body[data-variant="soft"] .send { transition: transform .22s cubic-bezier(.2,1.6,.3,1), box-shadow .22s ease; }
+
+  html.static *, html.static *::before, html.static *::after { animation: none !important; transition: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body data-variant="glass">
+  <div class="app">
+    <div class="frame-label">
+      <b id="variant-name">A · 静奢玻璃</b>
+      <span id="variant-note">低饱和玻璃层 + 柔和投影，动效 160–220ms，克制的滑入与高亮</span>
+    </div>
+
+    <div class="panel">
+      <div class="tabs">
+        <div class="tab" aria-selected="true"><span class="dot live"></span>前端重构<span class="x">×</span><span class="underline"></span></div>
+        <div class="tab"><span class="dot"></span>接口联调<span class="x">×</span><span class="underline"></span></div>
+        <div class="tab"><span class="dot"></span>文档整理<span class="x">×</span><span class="underline"></span></div>
+        <div class="tab-add">+</div>
+      </div>
+
+      <div class="toolbar">
+        <span class="title">多会话</span>
+        <span class="meta">v0.14.0</span>
+        <span class="meta">3 个格子</span>
+        <span class="spacer"></span>
+        <span class="btn">紧凑密度</span>
+        <span class="btn icon-btn">?</span>
+        <span class="btn icon-btn">⤢</span>
+        <span class="btn">均分</span>
+        <span class="btn primary">+ 新建会话</span>
+      </div>
+
+      <div class="hint">
+        <b>提示</b>拖分隔条调大小 · 拖标题栏交换会话 · 拖标签可排序
+        <span class="dismiss">知道了</span>
+      </div>
+
+      <div class="board">
+        <div class="row top">
+          <div class="pane active">
+            <div class="pane-head">
+              <span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="status live"></span>
+              <span class="pane-title">重构多会话面板布局</span>
+              <span class="pane-sub">~/plugins/muti-sessions</span>
+              <span class="pane-actions"><span class="icon">⤢</span><span class="icon">▁</span><span class="icon">×</span></span>
+            </div>
+            <div class="messages">
+              <div class="msg user"><span class="who">你</span><div class="bubble">把三个格子的间距再压缩一点，标题栏也收窄，尽量多留出对话区域。</div></div>
+              <div class="msg assistant"><span class="who">助手</span><div class="bubble">可以。我把 `PAD` 从 8 调到 6，标题栏高度降到 28px，并在格子上加了 13px 圆角和一层很淡的投影，层次更清楚但不抢内容。<div class="code"><span class="k">const</span> METRICS = { pad: <span class="s">6</span>, splitter: <span class="s">6</span>, radius: <span class="s">13</span> }</div><div class="stream"><i></i><i></i><i></i><span>正在输出…</span></div></div></div>
+            </div>
+            <div class="composer"><div class="line">继续输入，或按 Enter 发送…</div><div class="row2"><span class="chip">工作区 · muti-sessions</span><span class="chip">deepseek-v3</span><span class="send">↑</span></div></div>
+          </div>
+        </div>
+
+        <div class="splitter-h"></div>
+
+        <div class="row bottom">
+          <div class="pane">
+            <div class="pane-head">
+              <span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="status"></span>
+              <span class="pane-title">检查会话引用释放</span>
+              <span class="pane-actions"><span class="icon">⤢</span><span class="icon">▁</span><span class="icon">×</span></span>
+            </div>
+            <div class="messages">
+              <div class="msg assistant"><span class="who">助手</span><div class="bubble">`usePaneReference` 在清理时会 release，但重试分支要先释放旧的引用，否则同一会话会被 retain 两次。<span class="shimmer"></span><span class="shimmer" style="width: 62%"></span></div></div>
+            </div>
+            <div class="composer"><div class="line">继续输入…</div><div class="row2"><span class="chip">只读</span><span class="send">↑</span></div></div>
+          </div>
+
+          <div class="splitter-v"></div>
+
+          <div class="pane">
+            <div class="pane-head">
+              <span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="status"></span>
+              <span class="pane-title">整理发布说明</span>
+              <span class="pane-actions"><span class="icon">⤢</span><span class="icon">▁</span><span class="icon">×</span></span>
+            </div>
+            <div class="messages">
+              <div class="msg user"><span class="who">你</span><div class="bubble">把 0.13 的改动写成三条要点，别超过 80 字。</div></div>
+              <div class="msg assistant"><span class="who">助手</span><div class="bubble">1. 页签切换保留挂载，滚动与草稿不丢；2. 最多 3 个页签常驻；3. 其余页签卸载但会话继续运行。</div></div>
+            </div>
+            <div class="composer"><div class="line">继续输入…</div><div class="row2"><span class="send">↑</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const params = new URLSearchParams(location.search)
+  const variant = params.get('variant') || 'glass'
+  const meta = {
+    glass: ['A · 静奢玻璃', '低饱和玻璃层 + 柔和投影，动效 160–220ms，克制的滑入与高亮'],
+    blueprint: ['B · 工程蓝图', '浅色高对比 + 等宽标题 + 细网格底纹，动效 120ms，干脆利落'],
+    soft: ['C · 灵动柔光', '紫青渐变 + 大圆角 + 光晕，动效 260–400ms 带回弹，气氛更活泼'],
+  }
+  document.body.dataset.variant = variant
+  if (params.get('static') === '1') document.documentElement.classList.add('static')
+  const [name, note] = meta[variant] || meta.glass
+  document.getElementById('variant-name').textContent = name
+  document.getElementById('variant-note').textContent = note
+</script>
+</body>
+</html>

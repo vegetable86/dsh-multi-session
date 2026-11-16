@@ -313,7 +313,7 @@ checks.push([
   'six panes tile as three rows of two',
 ])
 checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
-checks.push([manyContainer.textContent.includes('6 paneCount'), 'toolbar reports the pane count without a cap'])
+checks.push([manyContainer.querySelectorAll('[data-pane-id]').length === 6, 'every pane renders without a hard cap'])
 const headersBefore = manyContainer.querySelectorAll('button[title="switchSession"]').length
 await act(async () => { addButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
 const headersAfter = manyContainer.querySelectorAll('button[title="switchSession"]').length
@@ -349,6 +349,10 @@ checks.push([rowDivs()[0].contains(dragContainer.querySelector('[data-pane-id="d
 
 const horizontal = dragContainer.querySelector('[data-multisession-host] div[style*="row-resize"]')
 await act(async () => { horizontal.dispatchEvent(pointer('pointerdown', 600, 400)) })
+checks.push([
+  dragContainer.querySelector('[data-multisession-host]').style.cursor === 'row-resize',
+  'a row divider shows the resize cursor while dragging',
+])
 await act(async () => { emitWindow('pointermove', { clientX: 600, clientY: 500, cancelable: false }) })
 await act(async () => { emitWindow('pointerup', {}) })
 const firstRowWeight = Number(rowDivs()[0].style.flexGrow)

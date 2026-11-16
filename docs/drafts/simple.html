@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>多会话 · 简化对照</title>
+<style>
+  :root{
+    --bg:#0d0f13; --panel:#14171d; --pane:#191d24; --pane2:#161a20;
+    --line:#232935; --line-soft:#1d222b; --fg:#e7ebf2; --muted:#98a1b1; --faint:#6a7280;
+    --accent:#7aa2ff; --accent-soft:rgba(122,162,255,.14); --ok:#4ade80;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+  .wrap{height:100%;display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px}
+  .col{display:flex;flex-direction:column;gap:9px;min-width:0}
+  .head{display:flex;align-items:baseline;gap:9px;padding:0 2px}
+  .head b{font-size:13px;font-weight:650;letter-spacing:-.01em}
+  .head span{font-size:11px;color:var(--faint)}
+  .panel{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+
+  /* tabs */
+  .tabs{display:flex;align-items:center;gap:2px;height:36px;padding:0 8px;border-bottom:1px solid var(--line);background:#111419;flex:none}
+  .tab{position:relative;display:flex;align-items:center;gap:6px;height:100%;padding:0 10px;font-size:12px;color:var(--muted);cursor:pointer}
+  .tab:hover{color:var(--fg)}
+  .tab.on{color:var(--fg);font-weight:600}
+  .tab.on::after{content:"";position:absolute;left:7px;right:7px;bottom:0;height:2px;background:var(--accent);border-radius:2px}
+  .tab .d{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+  .tab .d.live{background:var(--accent)}
+  .tab .x{font-size:10px;color:var(--faint);opacity:0}
+  .tab:hover .x,.tab.on .x{opacity:1}
+  .plus{width:25px;height:25px;border-radius:6px;display:grid;place-items:center;color:var(--muted);font-size:14px;margin-left:2px}
+
+  .bar{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;flex:none}
+  .bar .name{font-weight:650}
+  .bar .meta{font-size:10.5px;color:var(--faint);font-family:var(--mono)}
+  .sp{flex:1}
+  .tb{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:6px;font-size:11.5px;color:var(--muted);border:1px solid transparent}
+  .tb:hover{background:#1b2029;color:var(--fg)}
+  .tb.box{width:24px;padding:0;justify-content:center;border:1px solid var(--line)}
+  .tb.pri{background:var(--accent);color:#0c1322;font-weight:600;padding:0 10px}
+  .hint{display:flex;align-items:center;height:24px;padding:0 10px;border-bottom:1px solid var(--line);font-size:10.5px;color:var(--faint);background:#12161c;flex:none}
+  .hint b{color:var(--muted);font-weight:600}
+
+  .board{flex:1;min-height:0;display:grid;grid-template-rows:1fr 8px 1fr;padding:8px;background:#0f1217}
+  .row{display:grid;min-height:0}
+  .row.two{grid-template-columns:1fr 8px 1fr}
+  .sp-h,.sp-v{position:relative}
+  .sp-h::after{content:"";position:absolute;left:26%;right:26%;top:3px;height:2px;border-radius:2px;background:#2c3442}
+  .sp-v::after{content:"";position:absolute;top:26%;bottom:26%;left:3px;width:2px;border-radius:2px;background:#2c3442}
+
+  .pane{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--pane);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .pane.dim{background:var(--pane2)}
+  .pane.on{border-color:rgba(122,162,255,.34)}
+  .ph{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px 0 10px;border-bottom:1px solid var(--line-soft);background:#1b2028;flex:none}
+  .pane.on .ph{background:#1d2430;box-shadow:inset 2px 0 0 var(--accent)}
+  .grip{display:inline-grid;grid-template-columns:repeat(2,3px);gap:2.5px;color:var(--faint)}
+  .grip i{width:3px;height:3px;border-radius:50%;background:currentColor}
+  .dot{width:5px;height:5px;border-radius:50%;background:var(--ok);flex:none}
+  .dot.live{background:var(--accent)}
+  .title{font-size:12.5px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap}
+  .acts{margin-left:auto;display:flex;gap:1px}
+  .act{width:23px;height:21px;border-radius:5px;display:grid;place-items:center;color:var(--muted);font-size:10.5px}
+  .act:hover{background:#262d38;color:var(--fg)}
+  /* simplified header: icons only on hover */
+  .simple .acts .act{opacity:0;transition:opacity .14s ease}
+  .simple .pane:hover .acts .act, .simple .pane.on .acts .act{opacity:1}
+
+  .body{flex:1;min-height:0;padding:14px 16px 6px;display:flex;flex-direction:column;gap:11px;font-size:12.5px;line-height:1.66}
+  .me{align-self:flex-end;max-width:76%;background:#222935;border:1px solid #2c3442;border-radius:8px;padding:7px 10px}
+  .role{font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+  .work{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);margin-top:5px}
+  .work i{width:4px;height:4px;border-radius:50%;background:var(--accent);animation:hop 1.1s ease-in-out infinite}
+  .work i:nth-child(2){animation-delay:.15s}.work i:nth-child(3){animation-delay:.3s}
+  .comp{margin:4px 10px 10px;border:1px solid var(--line);border-radius:8px;background:#171b22;padding:8px 10px;font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:6px}
+  .tag{font-size:10px;padding:1px 6px;border:1px solid var(--line);border-radius:4px;font-family:var(--mono)}
+  .send{margin-left:auto;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#0c1322;display:grid;place-items:center;font-size:10.5px}
+  @keyframes hop{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-3px);opacity:1}}
+  /* simplified tweaks */
+  .simple .bar{height:30px;border-bottom:1px solid var(--line-soft)}
+  .simple .tabs{height:34px}
+  .simple .ph{height:27px}
+  .simple .board{padding:6px;grid-template-rows:1fr 6px 1fr}
+  .simple .row.two{grid-template-columns:1fr 6px 1fr}
+  .simple .sp-h::after{top:2px}
+  .simple .sp-v::after{left:2px}
+  .simple .pane{border-radius:6px}
+  .simple .grip{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="col">
+    <div class="head"><b>现在</b><span>标签 + 工具条 + 提示条，三层横条；格头常驻三个按钮</span></div>
+    <div class="panel">
+      <div class="tabs">
+        <div class="tab on"><span class="d live"></span>面板重构<span class="x">×</span></div>
+        <div class="tab"><span class="d"></span>接口联调<span class="x">×</span></div>
+        <div class="tab"><span class="d"></span>发布说明<span class="x">×</span></div>
+        <div class="plus">+</div>
+      </div>
+      <div class="bar"><span class="name">多会话</span><span class="meta">v0.14.0</span><span class="meta">3 格</span><span class="sp"></span><span class="tb">紧凑</span><span class="tb box">?</span><span class="tb box">⤢</span><span class="tb">均分</span><span class="tb pri">+ 会话</span></div>
+      <div class="hint"><b>提示</b>&nbsp;拖分隔条调大小 · 拖标题栏交换 · 拖标签排序</div>
+      <div class="board">
+        <div class="row"><div class="pane on">
+          <div class="ph"><span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="dot live"></span><span class="title">重构多会话面板布局</span><span class="meta">muti-sessions</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div>
+          <div class="body"><span class="role">助手</span><div>间距 8 → 6，标题栏 32 → 28；层次交给字重和底色，不再叠阴影。</div><div class="work"><i></i><i></i><i></i>正在输出</div></div>
+          <div class="comp">继续输入…<span class="tag">muti-sessions</span><span class="send">↑</span></div>
+        </div></div>
+        <div class="sp-h"></div>
+        <div class="row two">
+          <div class="pane dim"><div class="ph"><span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="dot"></span><span class="title">检查会话引用释放</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div><div class="body"><span class="role">助手</span><div>重试分支要先释放旧引用，否则同一会话会被 retain 两次。</div></div><div class="comp">继续输入…<span class="send">↑</span></div></div>
+          <div class="sp-v"></div>
+          <div class="pane dim"><div class="ph"><span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="dot"></span><span class="title">整理发布说明</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div><div class="body"><span class="role">助手</span><div>1. 页签切换保留挂载；2. 最多三个常驻；3. 其余卸载但继续运行。</div></div><div class="comp">继续输入…<span class="send">↑</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col simple">
+    <div class="head"><b>简化</b><span>并成一行；按钮只在 hover 出现；去掉提示条与格头图标常驻</span></div>
+    <div class="panel">
+      <div class="tabs">
+        <div class="tab on"><span class="d live"></span>面板重构<span class="x">×</span></div>
+        <div class="tab"><span class="d"></span>接口联调<span class="x">×</span></div>
+        <div class="tab"><span class="d"></span>发布说明<span class="x">×</span></div>
+        <div class="plus">+</div>
+        <span class="sp"></span>
+        <span class="tb box" title="密度">◐</span>
+        <span class="tb box" title="全屏">⤢</span>
+        <span class="tb pri">+ 会话</span>
+      </div>
+      <div class="board">
+        <div class="row"><div class="pane on">
+          <div class="ph"><span class="dot live"></span><span class="title">重构多会话面板布局</span><span class="meta">muti-sessions</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div>
+          <div class="body"><span class="role">助手</span><div>间距 8 → 6，标题栏 32 → 28；层次交给字重和底色，不再叠阴影。</div><div class="work"><i></i><i></i><i></i>正在输出</div></div>
+          <div class="comp">继续输入…<span class="tag">muti-sessions</span><span class="send">↑</span></div>
+        </div></div>
+        <div class="sp-h"></div>
+        <div class="row two">
+          <div class="pane dim"><div class="ph"><span class="dot"></span><span class="title">检查会话引用释放</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div><div class="body"><span class="role">助手</span><div>重试分支要先释放旧引用，否则同一会话会被 retain 两次。</div></div><div class="comp">继续输入…<span class="send">↑</span></div></div>
+          <div class="sp-v"></div>
+          <div class="pane dim"><div class="ph"><span class="dot"></span><span class="title">整理发布说明</span><span class="acts"><span class="act">⤢</span><span class="act">▁</span><span class="act">×</span></span></div><div class="body"><span class="role">助手</span><div>1. 页签切换保留挂载；2. 最多三个常驻；3. 其余卸载但继续运行。</div></div><div class="comp">继续输入…<span class="send">↑</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

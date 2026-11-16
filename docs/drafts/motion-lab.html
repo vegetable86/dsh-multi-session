@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>多会话面板 · 动效草稿</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161920; --pane:#1b1f27; --pane2:#171b22;
+    --line:#252b35; --line2:#2e3542; --fg:#e9edf4; --muted:#98a1b1; --faint:#68707e;
+    --accent:#7aa2ff; --accent-soft:rgba(122,162,255,.14); --ok:#4ade80;
+    --r:10px; --gap:8px; --pad:8px;
+    --motion:1;               /* slow-motion multiplier */
+    --ease-out:cubic-bezier(.2,0,0,1);
+    --ease-move:cubic-bezier(.2,.8,.2,1);
+    --dur-move:280ms; --dur-max:320ms; --dur-min:240ms; --dur-fade:160ms;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+  .lab{height:100%;display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px}
+
+  .ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .ctl .lbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-right:6px}
+  button{font:inherit;font-size:12px;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:7px;height:28px;padding:0 11px;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+  button:hover{background:#1c2129;color:var(--fg);border-color:var(--line2)}
+  button.on{color:var(--accent);border-color:rgba(122,162,255,.45);background:var(--accent-soft)}
+  .spacer{flex:1}
+  .hintline{font-size:11.5px;color:var(--faint)}
+
+  .frame{flex:1;min-height:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+  .tabs{display:flex;align-items:center;gap:2px;height:38px;padding:0 8px;border-bottom:1px solid var(--line);background:#14171d;position:relative;flex:none}
+  .tab{position:relative;display:flex;align-items:center;gap:7px;height:100%;padding:0 12px;font-size:12.5px;color:var(--muted);cursor:pointer;transition:color .14s}
+  .tab:hover{color:var(--fg)}
+  .tab.on{color:var(--fg);font-weight:600}
+  .tab .u{position:absolute;left:8px;right:8px;bottom:0;height:2px;border-radius:2px;background:var(--accent);transform:scaleX(0);transform-origin:center;transition:transform calc(180ms * var(--motion)) var(--ease-out)}
+  .tab.on .u{transform:scaleX(1)}
+  .tab .dot{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+  .tab .dot.live{background:var(--accent);animation:breathe 2.4s ease-in-out infinite}
+  .tabadd{width:26px;height:26px;margin-left:4px;border-radius:7px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer}
+  .tabadd:hover{background:#1d222a;color:var(--fg)}
+
+  .bar{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;flex:none}
+  .bar .name{font-weight:650;font-size:12.5px}
+  .sp{flex:1}`n  .bar .meta{font-size:10.5px;color:var(--faint);font-family:"Cascadia Mono",Consolas,monospace}
+
+  .chips{display:flex;gap:6px;align-items:center;min-height:0;padding:0 10px;background:#14171d;border-bottom:1px solid var(--line);overflow:hidden;height:0;transition:height calc(180ms * var(--motion)) var(--ease-out)}
+  .chips.has{height:34px}
+  .chip{display:flex;align-items:center;gap:6px;height:23px;padding:0 9px;border:1px solid var(--line2);border-radius:7px;background:#1b2028;font-size:11.5px;color:var(--muted);cursor:pointer;animation:chipIn calc(160ms * var(--motion)) var(--ease-out) both}
+  .chip:hover{color:var(--fg);border-color:#46506a}
+  .chip .dot{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+
+  .stage{position:relative;flex:1;min-height:0;background:#12151b;padding:8px;overflow:hidden}
+  .pane{position:absolute;display:flex;flex-direction:column;background:var(--pane);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;will-change:left,top,width,height;
+        transition:left calc(var(--dur-move) * var(--motion)) var(--ease-move),top calc(var(--dur-move) * var(--motion)) var(--ease-move),width calc(var(--dur-move) * var(--motion)) var(--ease-move),height calc(var(--dur-move) * var(--motion)) var(--ease-move),opacity calc(var(--dur-fade) * var(--motion)) linear,border-color .15s,box-shadow .15s}
+  .pane.dragging{transition:none}
+  .pane.on{border-color:rgba(122,162,255,.4);box-shadow:0 0 0 1px rgba(122,162,255,.12)}
+  .ph{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px 0 10px;border-bottom:1px solid var(--line);background:#1d222a;font-size:12.5px;flex:none;cursor:grab;user-select:none}
+  .ph .grip{display:inline-grid;grid-template-columns:repeat(2,3px);gap:2.5px;color:var(--faint)}
+  .ph .grip i{width:3px;height:3px;border-radius:50%;background:currentColor}
+  .ph .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+  .ph .dot.live{background:var(--accent);animation:breathe 2.4s ease-in-out infinite}
+  .ph .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph .acts{margin-left:auto;display:flex;gap:1px}
+  .ph .act{width:24px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--muted);font-size:11px;cursor:pointer}
+  .ph .act:hover{background:#262c37;color:var(--fg)}
+  .body{flex:1;min-height:0;overflow:hidden;padding:14px 15px 8px;display:flex;flex-direction:column;gap:12px;font-size:12.5px;line-height:1.66}
+  .me{align-self:flex-end;max-width:78%;background:#232a36;border:1px solid #2d3543;border-radius:9px;padding:7px 10px}
+  .role{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .working{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px}
+  .working i{width:4px;height:4px;border-radius:50%;background:var(--accent);animation:hop 1.1s ease-in-out infinite}
+  .working i:nth-child(2){animation-delay:.15s}.working i:nth-child(3){animation-delay:.3s}
+  .comp{margin:6px 10px 10px;border:1px solid var(--line);border-radius:9px;background:#191e26;padding:8px 10px;font-size:12px;color:var(--faint);display:flex;flex-direction:column;gap:7px}
+  .comp .send{margin-left:auto;width:23px;height:23px;border-radius:50%;background:var(--accent);color:#0d1220;display:grid;place-items:center;font-size:11px}
+
+  .split{position:absolute;background:transparent;z-index:5}
+  .split::after{content:"";position:absolute;background:#2b3342;border-radius:2px;transition:background .12s,box-shadow .12s}
+  .split.h::after{left:24%;right:24%;top:50%;height:2px;margin-top:-1px}
+  .split.v::after{top:24%;bottom:24%;left:50%;width:2px;margin-left:-1px}
+  .split:hover::after,.split.on::after{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .stage.dragging .pane{transition:none!important}
+  .stage.dragging{cursor:grabbing}
+  .tab.dragging{opacity:.38}
+  .tab.drop{box-shadow:inset 2px 0 0 var(--accent)}
+  .tab[draggable="true"]{cursor:grab}
+
+  .overlay{position:absolute;inset:0;background:rgba(6,8,12,.45);opacity:0;pointer-events:none;transition:opacity calc(var(--dur-fade) * var(--motion)) linear}
+  .overlay.on{opacity:1;pointer-events:auto}
+  .dialog{position:absolute;left:50%;top:50%;width:min(420px,86%);transform:translate(-50%,-50%) scale(.97);opacity:0;transition:transform calc(var(--dur-fade) * var(--motion)) var(--ease-out),opacity calc(var(--dur-fade) * var(--motion)) linear;background:#171b23;border:1px solid var(--line2);border-radius:12px;padding:16px;box-shadow:0 30px 70px rgba(0,0,0,.5)}
+  .overlay.on .dialog{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .dialog h3{margin:0 0 4px;font-size:13.5px}
+  .dialog p{margin:0 0 12px;font-size:11.5px;color:var(--muted)}
+  .wrow{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;margin-bottom:6px}
+  .wrow span{color:var(--faint);font-size:10.5px;font-family:"Cascadia Mono",Consolas,monospace}
+
+  .spec{flex:none;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;color:var(--muted)}
+  .spec .card{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#14171d}
+  .spec .card b{display:block;color:var(--fg);font-size:11.5px;margin-bottom:5px;font-weight:600}
+  .spec .row{display:flex;justify-content:space-between;gap:8px;padding:1.5px 0}
+  .spec .row span:last-child{font-family:"Cascadia Mono",Consolas,monospace;color:var(--faint);font-size:10px}
+  .curve{height:16px;margin-top:4px}
+  .curve path{fill:none;stroke:var(--accent);stroke-width:1.4;opacity:.85}
+
+  @keyframes breathe{0%,100%{opacity:1}50%{opacity:.3}}
+  @keyframes hop{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-3px);opacity:1}}
+  @keyframes chipIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+  @keyframes paneIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  html.static *{animation:none!important;transition:none!important}
+</style>
+</head>
+<body>
+<div class="lab">
+  <div class="ctl">
+    <span class="lbl">动效草稿</span>
+    <button data-act="enter">重播入场</button>
+    <button data-act="add">新增格子</button>
+    <button data-act="close">关闭格子</button>
+    <button data-act="max">最大化 / 还原</button>
+    <button data-act="min">最小化 / 展开</button>
+    <button data-act="tab">切换页签</button>
+    <button data-act="dialog">打开工作区选择</button>
+    <span class="spacer"></span>
+    <span class="hintline">所有过渡都是真实可交互的</span>
+    <button data-act="slow" class="toggle">慢动作 ×0.25</button>
+  </div>
+
+  <div class="frame">
+    <div class="tabs" id="tabs">
+      <div class="tab on" data-tab="0"><span class="dot live"></span>面板重构<span class="u"></span></div>
+      <div class="tab" data-tab="1"><span class="dot"></span>接口联调<span class="u"></span></div>
+      <div class="tab" data-tab="2"><span class="dot"></span>发布说明<span class="u"></span></div>
+      <div class="tabadd" id="tabadd">+</div>
+    </div>
+    <div class="bar"><span class="name">多会话</span><span class="meta">3 格 · v0.14.0</span><span class="sp"></span><span class="meta">可以直接拖：分隔条 / 标题栏 / 标签</span></div>
+    <div class="chips" id="chips"></div>
+    <div class="stage" id="stage">
+      <div class="overlay" id="overlay"><div class="dialog"><h3>在哪个工作区创建？</h3><p>新会话会在选中的工作区里打开，并留在当前格子。</p><div class="wrow">muti-sessions<span>~/plugins</span></div><div class="wrow">dsh-docs<span>~/docs</span></div></div></div>
+    </div>
+  </div>
+
+  <div class="spec">
+    <div class="card"><b>位移 / 尺寸变化</b><div class="row"><span>增删格子、最大化</span><span>280–320ms</span></div><div class="row"><span>曲线</span><span>cubic-bezier(.2,.8,.2,1)</span></div><svg class="curve" viewBox="0 0 100 16" preserveAspectRatio="none"><path d="M0,16 C20,16 30,0 100,0"/></svg></div>
+    <div class="card"><b>出现 / 消失</b><div class="row"><span>面板入场</span><span>220ms + 30ms 错峰</span></div><div class="row"><span>页签交叉淡入</span><span>140ms</span></div><div class="row"><span>对话框</span><span>160ms · scale .97→1</span></div></div>
+    <div class="card"><b>反馈 / 微交互</b><div class="row"><span>hover</span><span>120–140ms</span></div><div class="row"><span>状态点呼吸</span><span>2.4s</span></div><div class="row"><span>流式三点</span><span>1.1s</span></div></div>
+  </div>
+</div>
+
+<script>
+const stage = document.getElementById('stage')
+const chipsEl = document.getElementById('chips')
+const overlay = document.getElementById('overlay')
+const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const PANE_DATA = [
+  { id: 'a', title: '重构多会话面板布局', live: true, role: '助手', text: '间距 8 → 6，标题栏 32 → 28；层次交给字重和底色，不再叠阴影。' },
+  { id: 'b', title: '检查会话引用释放', live: false, role: '助手', text: '重试分支要先释放旧引用，否则同一会话会被 retain 两次。' },
+  { id: 'c', title: '整理发布说明', live: false, role: '助手', text: '1. 页签切换保留挂载；2. 最多三个常驻；3. 其余卸载但继续运行。' },
+  { id: 'd', title: '跑一遍渲染冒烟', live: false, role: '助手', text: '18 项注册检查 + 渲染断言全部通过。' },
+]
+
+let state = { panes: ['a','b','c'], max: null, minimized: [], tab: 0, ratio: { row: 0.5, col: 0.5 } }
+
+function rects(list){
+  const w = stage.clientWidth - 16, h = stage.clientHeight - 16
+  const g = 8
+  const row = Math.min(0.85, Math.max(0.15, state.ratio.row))
+  const col = Math.min(0.85, Math.max(0.15, state.ratio.col))
+  if (list.length === 1) return [{ x: 8, y: 8, w, h }]
+  if (list.length === 2) {
+    const cw = (w - g) * col
+    return [{ x: 8, y: 8, w: cw, h }, { x: 8 + cw + g, y: 8, w: w - cw - g, h }]
+  }
+  if (list.length === 3) {
+    const topH = (h - g) * row
+    const botY = 8 + topH + g
+    const cw = (w - g) * col
+    return [
+      { x: 8, y: 8, w, h: topH },
+      { x: 8, y: botY, w: cw, h: h - topH - g },
+      { x: 8 + cw + g, y: botY, w: w - cw - g, h: h - topH - g },
+    ]
+  }
+  const cw = (w - g) * col, ch = (h - g) * row
+  return [
+    { x: 8, y: 8, w: cw, h: ch },
+    { x: 8 + cw + g, y: 8, w: w - cw - g, h: ch },
+    { x: 8, y: 8 + ch + g, w: cw, h: h - ch - g },
+    { x: 8 + cw + g, y: 8 + ch + g, w: w - cw - g, h: h - ch - g },
+  ]
+}
+
+function buildPane(data){
+  const el = document.createElement('div')
+  el.className = 'pane'
+  el.dataset.id = data.id
+  el.innerHTML = `
+    <div class="ph"><span class="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="dot ${data.live?'live':''}"></span><span class="t">${data.title}</span>
+      <span class="acts"><span class="act" data-a="max">⤢</span><span class="act" data-a="min">▁</span><span class="act" data-a="close">×</span></span></div>
+    <div class="body"><span class="role">${data.role}</span><div>${data.text}</div>${data.id==='a'?'<div class="working"><i></i><i></i><i></i>正在输出</div>':''}</div>
+    <div class="comp"><div>继续输入…</div><div style="display:flex;gap:6px"><span style="border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:10px">muti-sessions</span><span class="send">↑</span></div></div>`
+  el.addEventListener('pointerdown', () => { setActive(el.dataset.id) })
+  const ph = el.querySelector('.ph')
+  ph.draggable = true
+  ph.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-pane', el.dataset.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging') })
+  ph.addEventListener('dragend', () => { el.classList.remove('dragging'); stage.querySelectorAll('.pane.drop').forEach(p => p.classList.remove('drop')) })
+  el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/x-pane')) { e.preventDefault(); el.classList.add('drop') } })
+  el.addEventListener('dragleave', () => el.classList.remove('drop'))
+  el.addEventListener('drop', e => {
+    e.preventDefault()
+    el.classList.remove('drop')
+    const from = e.dataTransfer.getData('text/x-pane')
+    if (!from || from === el.dataset.id) return
+    const src = stage.querySelector(`.pane[data-id="${from}"]`)
+    if (!src) return
+    const a = { title: src.querySelector('.t').textContent, body: src.querySelector('.body').innerHTML, dot: src.querySelector('.dot').className }
+    src.querySelector('.t').textContent = el.querySelector('.t').textContent
+    src.querySelector('.body').innerHTML = el.querySelector('.body').innerHTML
+    src.querySelector('.dot').className = el.querySelector('.dot').className
+    el.querySelector('.t').textContent = a.title
+    el.querySelector('.body').innerHTML = a.body
+    el.querySelector('.dot').className = a.dot
+    if (!prefersReduced) {
+      el.animate([{ transform: 'scale(.985)' }, { transform: 'none' }], { duration: 180 * getMotion(), easing: 'cubic-bezier(.2,0,0,1)' })
+    }
+  })
+  el.querySelector('[data-a="max"]').addEventListener('click', e => { e.stopPropagation(); toggleMax(el.dataset.id) })
+  el.querySelector('[data-a="min"]').addEventListener('click', e => { e.stopPropagation(); minimize(el.dataset.id) })
+  el.querySelector('[data-a="close"]').addEventListener('click', e => { e.stopPropagation(); closePane(el.dataset.id) })
+  return el
+}
+
+function setActive(id){ [...stage.querySelectorAll('.pane')].forEach(p => p.classList.toggle('on', p.dataset.id === id)) }
+
+function renderEntrance(){
+  [...stage.querySelectorAll('.pane')].forEach((p, i) => {
+    if (prefersReduced) return
+    p.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 220 * getMotion(), delay: i * 30 * getMotion(), easing: 'cubic-bezier(.2,0,0,1)', fill: 'both' })
+  })
+}
+
+function layout(){
+  const visible = state.panes.filter(id => !state.minimized.includes(id))
+  const rs = rects(visible)
+  visible.forEach((id, i) => {
+    const el = stage.querySelector(`.pane[data-id="${id}"]`)
+    if (!el) return
+    const r = state.max === id ? { x: 8, y: 8, w: stage.clientWidth - 16, h: stage.clientHeight - 16 } : rs[i]
+    el.style.left = r.x + 'px'; el.style.top = r.y + 'px'
+    el.style.width = r.w + 'px'; el.style.height = r.h + 'px'
+    el.style.opacity = state.max && state.max !== id ? '0' : '1'
+    el.style.display = state.minimized.includes(id) ? 'none' : 'flex'
+    el.style.pointerEvents = state.max && state.max !== id ? 'none' : 'auto'
+    el.style.zIndex = state.max === id ? 9 : 1
+  })
+  drawSplitters(visible)
+  renderChips()
+}
+
+function drawSplitters(visible){
+  const rs = rects(visible)
+  const g = 8
+  const want = []
+  if (!state.max && visible.length >= 2) {
+    if (visible.length === 2) {
+      want.push({ axis: 'col', key: 'c', x: rs[1].x - g, y: rs[1].y, h: rs[1].h })
+    } else if (visible.length === 3) {
+      want.push({ axis: 'row', key: 'r', x: rs[1].x, y: rs[1].y - g, w: rs[1].w })
+      want.push({ axis: 'col', key: 'c', x: rs[2].x - g, y: rs[2].y, h: rs[2].h })
+    } else {
+      want.push({ axis: 'row', key: 'r', x: rs[2].x, y: rs[2].y - g, w: rs[2].w })
+      want.push({ axis: 'col', key: 'c1', x: rs[1].x - g, y: rs[1].y, h: rs[1].h })
+      want.push({ axis: 'col', key: 'c2', x: rs[3].x - g, y: rs[3].y, h: rs[3].h })
+    }
+  }
+  stage.querySelectorAll('.split').forEach(s => { if (!want.some(w => w.key === s.dataset.key)) s.remove() })
+  want.forEach(w => {
+    let s = stage.querySelector(`.split[data-key="${w.key}"]`)
+    if (!s) {
+      s = document.createElement('div')
+      s.dataset.key = w.key
+      s.dataset.axis = w.axis
+      s.addEventListener('pointerdown', e => startSplitDrag(e, w.axis))
+      stage.appendChild(s)
+    }
+    s.className = 'split ' + (w.axis === 'row' ? 'h' : 'v')
+    if (w.axis === 'row') {
+      s.style.left = w.x + 'px'; s.style.width = w.w + 'px'
+      s.style.top = w.y + 'px'; s.style.height = g + 'px'; s.style.cursor = 'row-resize'
+    } else {
+      s.style.top = w.y + 'px'; s.style.height = w.h + 'px'
+      s.style.left = w.x + 'px'; s.style.width = g + 'px'; s.style.cursor = 'col-resize'
+    }
+  })
+}
+
+function startSplitDrag(event, axis){
+  event.preventDefault()
+  event.stopPropagation()
+  const el = event.currentTarget
+  const box = stage.getBoundingClientRect()
+  stage.classList.add('dragging')
+  el.classList.add('on')
+
+  const move = ev => {
+    if (axis === 'row') state.ratio.row = (ev.clientY - box.top - 8) / (box.height - 16)
+    else state.ratio.col = (ev.clientX - box.left - 8) / (box.width - 16)
+    layout()
+  }
+  const up = () => {
+    stage.classList.remove('dragging')
+    el.classList.remove('on')
+    el.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  if (el.setPointerCapture) { try { el.setPointerCapture(event.pointerId) } catch (_) {} }
+  el.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+function renderChips(){
+  chipsEl.classList.toggle('has', state.minimized.length > 0)
+  chipsEl.innerHTML = ''
+  state.minimized.forEach(id => {
+    const d = PANE_DATA.find(p => p.id === id)
+    const c = document.createElement('div')
+    c.className = 'chip'; c.dataset.id = id
+    c.innerHTML = `<span class="dot"></span>${d.title}`
+    c.onclick = () => restore(id)
+    chipsEl.appendChild(c)
+  })
+}
+
+function mount(){
+  PANE_DATA.forEach(d => {
+    if (stage.querySelector(`.pane[data-id="${d.id}"]`)) return
+    stage.appendChild(buildPane(d))
+  })
+  layout()
+}
+
+function addPane(){
+  if (state.panes.length >= 4) return
+  const next = PANE_DATA[state.panes.length]
+  state.panes.push(next.id)
+  mount(); layout(); renderEntrance()
+}
+
+function closePane(id){
+  if (state.panes.length <= 1) return
+  const el = stage.querySelector(`.pane[data-id="${id}"]`)
+  if (!el) return
+  const done = () => {
+    state.panes = state.panes.filter(p => p !== id)
+    state.minimized = state.minimized.filter(p => p !== id)
+    if (state.max === id) state.max = null
+    el.remove(); layout()
+  }
+  if (prefersReduced) return done()
+  el.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.985)' }],
+    { duration: 160 * getMotion(), easing: 'cubic-bezier(.2,0,0,1)' }).onfinish = done
+}
+
+function toggleMax(id){
+  state.max = state.max === id ? null : id
+  layout()
+}
+
+function minimize(id){
+  const el = stage.querySelector(`.pane[data-id="${id}"]`)
+  if (!el) return
+  if (state.max === id) state.max = null
+  const chipRect = chipsEl.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  state.minimized.push(id)
+  const finish = () => { el.style.display = 'none'; layout() }
+  if (prefersReduced) return finish()
+  el.animate(
+    [{ opacity: 1, transform: 'none' },
+     { opacity: 0, transform: `translate(${chipRect.left - r.left + 18}px, ${chipRect.top - r.top + 6}px) scale(.16)` }],
+    { duration: 240 * getMotion(), easing: 'cubic-bezier(.2,.8,.2,1)' }
+  ).onfinish = finish
+}
+
+function restore(id){
+  const el = stage.querySelector(`.pane[data-id="${id}"]`)
+  state.minimized = state.minimized.filter(p => p !== id)
+  if (el) el.style.display = 'flex'
+  layout()
+  if (el && !prefersReduced) {
+    el.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }],
+      { duration: 220 * getMotion(), easing: 'cubic-bezier(.2,0,0,1)' })
+  }
+}
+
+function switchTab(i){
+  state.tab = i
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', Number(t.dataset.tab) === i))
+  if (prefersReduced) return
+  const panes = [...stage.querySelectorAll('.pane')]
+  panes.forEach((p, idx) => p.animate([{ opacity: 1 }, { opacity: .2 }, { opacity: 1 }],
+    { duration: 200 * getMotion(), delay: idx * 20, easing: 'ease-in-out' }))
+}
+
+let motion = 1
+function getMotion(){ return motion }
+document.querySelector('[data-act="slow"]').addEventListener('click', e => {
+  motion = motion === 1 ? 4 : 1
+  document.documentElement.style.setProperty('--motion', motion)
+  e.currentTarget.classList.toggle('on', motion !== 1)
+})
+document.querySelectorAll('[data-act]').forEach(b => {
+  const act = b.dataset.act
+  if (act === 'slow') return
+  b.addEventListener('click', () => {
+    if (act === 'enter') renderEntrance()
+    if (act === 'add') addPane()
+    if (act === 'close') closePane(state.panes[state.panes.length - 1])
+    if (act === 'max') toggleMax(state.max || state.panes[0])
+    if (act === 'min') {
+      const target = state.panes.find(p => !state.minimized.includes(p))
+      if (target) minimize(target); else state.minimized.slice().forEach(restore)
+    }
+    if (act === 'tab') switchTab((state.tab + 1) % 3)
+    if (act === 'dialog') overlay.classList.toggle('on')
+  })
+})
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(Number(t.dataset.tab))))
+overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('on') })
+
+let tabDragEl = null
+document.querySelectorAll('.tab').forEach(t => {
+  t.draggable = true
+  t.addEventListener('dragstart', e => { tabDragEl = t; t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move' })
+  t.addEventListener('dragend', () => { t.classList.remove('dragging'); document.querySelectorAll('.tab.drop').forEach(x => x.classList.remove('drop')); tabDragEl = null })
+  t.addEventListener('dragover', e => { if (!tabDragEl || tabDragEl === t) return; e.preventDefault(); t.classList.add('drop') })
+  t.addEventListener('dragleave', () => t.classList.remove('drop'))
+  t.addEventListener('drop', e => {
+    e.preventDefault()
+    t.classList.remove('drop')
+    if (!tabDragEl || tabDragEl === t) return
+    const box = t.getBoundingClientRect()
+    const after = e.clientX > box.left + box.width / 2
+    t.parentNode.insertBefore(tabDragEl, after ? t.nextSibling : t)
+    document.querySelectorAll('.tab').forEach((x, i) => { x.dataset.tab = String(i) })
+  })
+})
+
+addEventListener('resize', layout)
+mount(); renderEntrance()
+</script>
+</body>
+</html>
