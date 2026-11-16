@@ -338,3 +338,15 @@ MultiSessionPage                // main 槽位条目，root scope
 - 这版只动插件自己的外框：标签栏加高到 46px、底部一条实边、活动标签做成实体药丸；格子改成 14px 圆角卡片 + 8px 投影；标题栏 34px 高、字号 12.5/600；活动格顶部 2px 强调条（`--dsw-alias-state-success-primary`）；格子底色从 `bg-l1` 换成 `bg-base`，与面板底色拉开一层。
 - 边界不变：对话正文、消息气泡、输入框仍由 `conversation.content` 渲染，插件不碰。
 - 版本号仍然显示在标签栏右侧，方便确认加载的是哪一版。
+
+## 30. v0.17：Claude 风格的作用域配色
+
+- 需求：用户希望整套界面（不只是外框）接近 Anthropic / Claude 的观感。
+- 平台边界：`conversation.content` 是 ui-conversation 注册的单一 factory，第三方不能替换（`registerFactory` 会抛 `slot factory "conversation.content" already has a definition`）；`conversation.session` 虽可按 priority 遮蔽，但要自行重写整套对话视图，不采用。
+- 方案：在多会话面板根节点注入一组 `--dsw-alias-*` 主题变量。ui-conversation / ui-chat 的 28 个样式模块共用到 56 个这类 token，CSS 变量沿子树继承，因此格子里的原生对话（正文、代码块、滚动条、边框、输入框）会被一并重新着色，且完全不动平台代码。
+- 色板（`THEME`）：面板底 `#1F1E1B`、卡片面 `#262624`、次级面 `#30302E`、边框 `rgba(240,238,230,0.10)`、正文 `#F0EEE6`、次级文字 `#B8B5AA`、弱文字 `#8A877C`、强调橘 `#D97757`；代码块底 `#191817`。
+- 同时提供 `--ms-*` 变量给插件自己的标签栏、卡片、标题栏、强调条用，避免插件样式与平台 token 名耦合过深。
+- 标签栏、活动标签、活动格强调条、分隔条统一改用 `--ms-*`；活动格强调条由绿色改为强调橘。
+- 排版：同时覆盖 `--dsw-font-markdown-base / -strong / -small / -h1..-h4`，把格子里的 Markdown 正文换成暖衬线字体栈（Georgia / Songti SC / SimSun），字号 15px、行高 1.72；插件自己的标签栏、按钮仍是系统无衬线。
+- 边界：仍是覆盖变量，不改结构、不注入全局样式表、不影响其他面板；若平台将来改用非 token 的硬编码颜色，这部分自动失效但不会报错。
+- 验证：`npm test`（18 项注册 + 全部渲染断言）全绿，`node --check client.js` 通过。

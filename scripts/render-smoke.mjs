@@ -483,6 +483,14 @@ stubHost(immContainer)
 await click(immContainer.querySelector('button[aria-label="immersive"]'))
 const immersiveRoot = immContainer.querySelector('[data-immersive]')
 checks.push([!!immersiveRoot && immersiveRoot.style.position === 'fixed', 'immersive lifts the panel into a fixed overlay'])
+checks.push([
+  !!immersiveRoot && immersiveRoot.style.getPropertyValue('--ms-accent') === '#D97757',
+  'the panel scopes the Claude palette onto its own root',
+])
+checks.push([
+  !!immersiveRoot && immersiveRoot.style.getPropertyValue('--dsw-alias-bg-base') !== '',
+  'the palette remaps the DSH alias tokens for the conversation subtree',
+])
 await sleep(260)
 const immersiveStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([immersiveStore.immersive === true, 'the immersive flag is persisted'])

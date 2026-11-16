@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.16.0'
+    const VERSION = '0.17.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -198,6 +198,66 @@ const NOOP = () => {}
       hintShow: 'Tips',
     }
 
+    /* Anthropic-flavoured palette: warm neutrals, one clay accent, no glow. */
+    const THEME = {
+      bg: '#1F1E1B',
+      surface: '#262624',
+      surface2: '#30302E',
+      border: 'rgba(240, 238, 230, 0.10)',
+      borderStrong: 'rgba(240, 238, 230, 0.18)',
+      text: '#F0EEE6',
+      textSecondary: '#B8B5AA',
+      textTertiary: '#8A877C',
+      accent: '#D97757',
+      hover: 'rgba(240, 238, 230, 0.06)',
+      code: '#191817',
+    }
+
+    /* Scope the palette to this panel: the tokens inherit into the native
+       conversation subtree, so the transcript is restyled too. */
+    const themeVars = {
+      '--ms-bg': THEME.bg,
+      '--ms-surface': THEME.surface,
+      '--ms-surface-2': THEME.surface2,
+      '--ms-border': THEME.border,
+      '--ms-border-strong': THEME.borderStrong,
+      '--ms-text': THEME.text,
+      '--ms-text-secondary': THEME.textSecondary,
+      '--ms-text-tertiary': THEME.textTertiary,
+      '--ms-accent': THEME.accent,
+      '--ms-hover': THEME.hover,
+      '--dsw-alias-bg-base': THEME.surface,
+      '--dsw-alias-bg-l1': THEME.surface,
+      '--dsw-alias-bg-layer-1': THEME.surface,
+      '--dsw-alias-bg-overlay': THEME.surface2,
+      '--dsw-alias-bg-module-platform': THEME.surface2,
+      '--dsw-alias-border-l1': THEME.border,
+      '--dsw-alias-border-l2': THEME.borderStrong,
+      '--dsw-alias-border-l3': 'rgba(240, 238, 230, 0.24)',
+      '--dsw-alias-border-l4': 'rgba(240, 238, 230, 0.30)',
+      '--dsw-alias-label-primary': THEME.text,
+      '--dsw-alias-label-secondary': THEME.textSecondary,
+      '--dsw-alias-label-tertiary': THEME.textTertiary,
+      '--dsw-alias-label-caption': THEME.textTertiary,
+      '--dsw-alias-label-dimmed': 'rgba(240, 238, 230, 0.45)',
+      '--dsw-alias-interactive-bg-hover': THEME.hover,
+      '--dsw-alias-interactive-bg-hover-solid': THEME.surface2,
+      '--dsw-alias-markdown-code-block': THEME.code,
+      '--dsw-alias-scrollbar-bg-l1': 'rgba(240, 238, 230, 0.10)',
+      '--dsw-alias-scrollbar-bg-l2': 'rgba(240, 238, 230, 0.18)',
+      '--dsw-alias-button-floating-fill': THEME.surface2,
+      '--dsw-alias-button-elevated-fill': THEME.surface2,
+      /* Claude reads in a warm serif; keep the chrome sans and only retune
+         the markdown typography inside the pane. */
+      '--dsw-font-markdown-base': '15px/1.72 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-base-strong': '600 15px/1.72 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-small': '13px/1.62 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-h1': '600 22px/1.35 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-h2': '600 19px/1.4 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-h3': '600 17px/1.45 "Georgia", "Songti SC", "SimSun", serif',
+      '--dsw-font-markdown-h4': '600 15.5px/1.5 "Georgia", "Songti SC", "SimSun", serif',
+    }
+
     const styles = {
       root: {
         position: 'relative',
@@ -207,8 +267,8 @@ const NOOP = () => {}
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
-        background: 'var(--dsw-alias-bg-base)',
-        color: 'var(--dsw-alias-label-primary)',
+        background: 'var(--ms-bg)',
+        color: 'var(--ms-text)',
       },
       /* Immersive: the panel leaves the grid and covers the whole window. */
       immersive: {
@@ -229,9 +289,9 @@ const NOOP = () => {}
         gap: 4,
         flex: '0 0 auto',
         padding: '6px 8px 0',
-        background: 'var(--dsw-alias-bg-l1)',
+        background: 'var(--ms-bg)',
         overflow: 'hidden',
-        borderBottom: '1px solid var(--dsw-alias-border-l1)',
+        borderBottom: '1px solid var(--ms-border)',
       },
       tabScroll: {
         display: 'flex',
@@ -268,16 +328,16 @@ const NOOP = () => {}
         borderStyle: 'solid',
         borderColor: 'transparent',
         background: 'transparent',
-        color: 'var(--dsw-alias-label-secondary)',
+        color: 'var(--ms-text-secondary)',
         fontFamily: 'inherit',
         fontSize: 12.5,
         cursor: 'pointer',
         transition: 'background 120ms ease, color 120ms ease',
       },
       tabActive: {
-        background: 'var(--dsw-alias-bg-l1)',
-        borderColor: 'var(--dsw-alias-border-l1)',
-        color: 'var(--dsw-alias-label-primary)',
+        background: 'var(--ms-surface-2)',
+        borderColor: 'var(--ms-border)',
+        color: 'var(--ms-text)',
         fontWeight: 600,
       },
       tabUnderline: {
@@ -287,7 +347,7 @@ const NOOP = () => {}
         bottom: 0,
         height: 2,
         borderRadius: 1,
-        background: 'var(--dsw-alias-state-success-primary)',
+        background: 'var(--ms-accent)',
       },
       tabTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 },
       tabDot: {
@@ -392,7 +452,7 @@ const NOOP = () => {}
       splitterLine: {
         position: 'absolute',
         borderRadius: 3,
-        background: 'var(--dsw-alias-border-l1)',
+        background: 'var(--ms-border-strong)',
         opacity: 0.55,
         transition: 'background 120ms ease, opacity 120ms ease',
       },
@@ -405,10 +465,10 @@ const NOOP = () => {}
         minHeight: 0,
         height: '100%',
         overflow: 'hidden',
-        borderRadius: 14,
-        border: '1px solid var(--dsw-alias-border-l1)',
-        background: 'var(--dsw-alias-bg-base)',
-        boxShadow: '0 6px 18px rgba(0, 0, 0, 0.16)',
+        borderRadius: 12,
+        border: '1px solid var(--ms-border)',
+        background: 'var(--ms-surface)',
+        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.22)',
       },
       paneHeader: {
         display: 'flex',
@@ -417,7 +477,7 @@ const NOOP = () => {}
         flex: '0 0 auto',
         minHeight: 34,
         padding: '0 6px 0 10px',
-        borderBottom: '1px solid var(--dsw-alias-border-l1)',
+        borderBottom: '1px solid var(--ms-border)',
         transition: 'background 120ms ease',
       },
       paneAccent: {
@@ -426,8 +486,8 @@ const NOOP = () => {}
         background: 'transparent',
         transition: 'background 160ms ease',
       },
-      paneAccentOn: { background: 'var(--dsw-alias-state-success-primary)' },
-      paneHeaderActive: { background: 'var(--dsw-alias-bg-l1)' },
+      paneAccentOn: { background: 'var(--ms-accent)' },
+      paneHeaderActive: { background: 'var(--ms-surface-2)' },
       headerActions: {
         display: 'flex',
         alignItems: 'center',
@@ -2692,7 +2752,7 @@ const NOOP = () => {}
       return h(DensityContext.Provider, { value: metrics },
         h('div', {
           ref: rootRef,
-          style: immersive ? Object.assign({}, styles.root, styles.immersive) : styles.root,
+          style: Object.assign({}, styles.root, themeVars, immersive ? styles.immersive : null),
           'data-immersive': immersive ? '' : undefined,
         },
           body,
