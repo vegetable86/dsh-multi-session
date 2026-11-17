@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.3'
+    const VERSION = '0.18.4'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -2150,6 +2150,11 @@ const NOOP = () => {}
       return h(PageBoundary, { t: props.t }, h(MultiSessionView, props))
     }
 
+    /* A workspace pick made from the native hero picker inside this panel is
+       handled by the mounted page instead of ui-workspace's reveal. */
+    let workspacePickInterceptor = null
+    let panelPointerAt = 0
+
     function MultiSessionView(props) {
       const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, uiWorkspace, t } = props
       const [board, setBoard] = useState(loadBoard)
@@ -2631,9 +2636,9 @@ const NOOP = () => {}
 
       /** Create a fresh session for one pane and bind it there. */
       const createSession = useCallback((paneId, workspaceId) => {
-        if (creatingPane !== null) return
+        if (creatingPane !== null) return null
         const target = layout ? layout.panes.find(pane => pane.id === paneId) : null
-        if (!target) return
+        if (!target) return null
         let snapshot = null
         try {
           snapshot = sessions.list.getSnapshot()
@@ -2646,7 +2651,7 @@ const NOOP = () => {}
         setPickingId(null)
         setCreatingPane(paneId)
         setCreateFailure(null)
-        Promise.resolve()
+        return Promise.resolve()
           .then(() => (request ? sessions.create(request) : sessions.create()))
           .then(sessionId => {
             setCreatingPane(null)
@@ -2657,6 +2662,40 @@ const NOOP = () => {}
             setCreateFailure({ paneId, message: errorText(error) })
           })
       }, [assignSession, creatingPane, layout, sessions, workspaces])
+
+      /* The hero picker only exists in a blank conversation; remember which tile
+         that is so a workspace pick can be rerouted into it. */
+      const blankPaneId = (() => {
+        if (!layout) return null
+        let snapshot = null
+        try {
+          snapshot = sessions.list.getSnapshot()
+        } catch (_unavailable) {
+          snapshot = null
+        }
+        const isBlank = id => !!(id && snapshot && snapshot.byId && snapshot.byId[id] && snapshot.byId[id].blank)
+        const activeBlank = layout.panes.find(pane => pane.id === activePaneId && isBlank(pane.sessionId))
+        if (activeBlank) return activeBlank.id
+        const firstBlank = layout.panes.find(pane => isBlank(pane.sessionId))
+        return firstBlank ? firstBlank.id : null
+      })()
+      const blankPaneRef = useRef(null)
+      blankPaneRef.current = blankPaneId
+      const createSessionRef = useRef(null)
+      createSessionRef.current = createSession
+      /* ui-workspace's reveal is what throws the page away; hand the pick back
+         to this tile instead, so the new session opens right here. */
+      useEffect(() => {
+        workspacePickInterceptor = workspaceId => {
+          const paneId = blankPaneRef.current
+          const create = createSessionRef.current
+          if (!paneId || typeof create !== 'function') return null
+          return create(paneId, workspaceId)
+        }
+        return () => {
+          workspacePickInterceptor = null
+        }
+      }, [])
 
       /**
        * Ask where a new session should live. The hero picker inside a blank
@@ -3056,6 +3095,9 @@ const NOOP = () => {}
           style: Object.assign({}, styles.root, themeVars, immersive ? styles.immersive : null),
           'data-immersive': immersive ? '' : undefined,
         'data-theme': theme,
+        onPointerDownCapture: () => {
+          panelPointerAt = Date.now()
+        },
         },
           body,
           workspaceFor
@@ -3077,6 +3119,31 @@ const NOOP = () => {}
       ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'multi-session: dictionaries')
       const t = ctx.locale.bind(NS)
       const sessions = ctx.sessions
+
+      /* The blank session hero uses ui-workspace's reveal, which switches the
+         main panel back to the single conversation. Keep picks made here local. */
+      const uiWorkspace = ctx.uiWorkspace
+      const openWorkspace = uiWorkspace && uiWorkspace.openWorkspace
+      if (typeof openWorkspace === 'function') {
+        ctx.effect(() => {
+          const patched = function (workspaceId, beforeOpen) {
+            const pick = workspacePickInterceptor
+            const recent = Date.now() - panelPointerAt < 2000
+            if (typeof pick === 'function' && recent) {
+              const pending = pick(workspaceId)
+              if (pending && typeof pending.then === 'function') {
+                return pending.then(function () {}, function () {})
+              }
+              return Promise.resolve()
+            }
+            return openWorkspace.apply(uiWorkspace, arguments)
+          }
+          uiWorkspace.openWorkspace = patched
+          return () => {
+            if (uiWorkspace.openWorkspace === patched) uiWorkspace.openWorkspace = openWorkspace
+          }
+        }, 'multi-session: keep workspace picks inside the panel')
+      }
 
       ctx.slots.inject('main', () => ctx.slots.register({
         name: 'main',

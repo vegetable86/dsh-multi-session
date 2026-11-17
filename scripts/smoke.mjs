@@ -82,7 +82,14 @@ const ctx = {
       return ref
     },
   },
+  uiWorkspace: {
+    opened: [],
+    openSession(id) { this.opened.push(id) },
+    openWorkspace(workspaceId) { this.opened.push('ws:' + workspaceId); return Promise.resolve() },
+  },
 }
+
+const originalOpenWorkspace = ctx.uiWorkspace.openWorkspace
 
 const mod = bundle.factory(p => {
   if (p === 'react') return React
@@ -113,5 +120,9 @@ assert(dicts && dicts.zh && dicts.en, 'zh and en dictionaries present')
 const zhKeys = Object.keys(dicts.zh).sort()
 const enKeys = Object.keys(dicts.en).sort()
 assert(JSON.stringify(zhKeys) === JSON.stringify(enKeys), 'zh/en dictionary keys match')
+
+assert(ctx.uiWorkspace.openWorkspace !== originalOpenWorkspace, 'workspace reveal is wrapped so a pick can stay in the panel')
+await ctx.uiWorkspace.openWorkspace('ws-1')
+assert(ctx.uiWorkspace.opened.includes('ws:ws-1'), 'the wrapper delegates to the host when no pane is asking')
 
 console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE OK')

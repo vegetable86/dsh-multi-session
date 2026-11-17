@@ -25,6 +25,7 @@ npm 包：`@vegataa/dsh-multi-session`
 13. 标签栏右侧的小字 X.Y.Z 是当前加载的构建版本，反馈问题时报这个版本号最省事。
 14. 格子里的对话也换上了 Claude 风格的暖色主题：面板在自己的根节点上重设 DSH 的主题变量（`--dsw-alias-*` 与 `--dsw-font-markdown-*`），对话区、代码块、滚动条、边框会跟着一起变，正文改用偏暖的衬线字体；这套配色只作用于多会话面板，其他页面不受影响。
 15. 标签栏右侧的调色板按钮可以换风格：跟随平台（默认）、Claude 浅色、Claude 深色、ChatGPT、Terminal 绿、Terminal 琥珀。选择会存进布局，刷新后保留，所有标签共用一套皮肤。
+16. 空白会话页面里的「工作区」选择器也留在本页：在多会话里挑一个新工作区，会直接在那个空白的格子里开一个新会话，不会跳回单个对话页。
 
 ## 实现要点
 
@@ -48,6 +49,7 @@ npm 包：`@vegataa/dsh-multi-session`
 - 动画只用 Web Animations API（animateIn 统一曲线）和 CSS 过渡，不注入额外样式表；每次调用都先看 prefers-reduced-motion。
 - 主题不是改平台：多会话面板在根节点注入一组 `--dsw-alias-*` 变量（`themeVars`），ui-conversation / ui-chat 的 28 个样式模块都用这些 token，变量沿子树继承，所以格子里的原生对话会被一起重新着色；插件自己的标签栏、卡片、强调条则用 `--ms-*` 变量，两者共用同一份 `THEME` 色板。
 - 标签拖动排序走 HTML5 拖放（自定义类型 `text/x-multisession-tab`），松手时只重排 `board.tabs` 数组，`activeTabId` 不变、布局不重建；拖到标签条空白处则移到最末。落点只按左右半区判断插到目标前还是后，不额外算几何。
+- 空白会话的 hero 工作区选择器来自平台，本身走 `uiWorkspace.openWorkspace` → `replaceMain(..., 'reveal')` → `layout.selectPanel(null)`，因此会切走主面板。插件在 `apply` 里给 `openWorkspace` 包了一层：面板挂载期间、且这次点击确实发生在面板内（2 秒内的指针交互）、当前又有空白格时，把「在那个工作区建会话」接过来，直接 `sessions.create({ workspaceId })` 绑到那个格子；其他来源的调用原样交回宿主。
 
 ## 开发
 

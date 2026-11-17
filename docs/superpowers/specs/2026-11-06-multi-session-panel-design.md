@@ -361,3 +361,12 @@ MultiSessionPage                // main 槽位条目，root scope
 - 排版：Claude 两套用暖衬线（15px/1.72），OpenAI 用系统无衬线（15px/1.66），Terminal 两套用等宽（13.5px/1.62）。
 - 边界：仍是变量覆盖，不注入样式表、不改结构；平台若改用非 token 的硬编码颜色，皮肤只影响外框，不影响对话正文。
 - 测试：新增四条——工具条有风格按钮、菜单列出 6 项、选 Claude 后根节点 `data-theme="claude"` 且 `--ms-accent` 为 `#D97757` 并写入存储、切回默认后 `--ms-accent` 恢复为平台变量。`npm test` 全绿。
+
+## 32. v0.18.4：空白会话里换工作区不再跳出面板
+
+- 现象：在多会话页新建会话后，如果在这个空白会话的 hero 里切换/选择工作区，页面会跳回单个对话页。
+- 原因：hero 的工作区选择器是 ui-conversation 自带的，点击后调 `uiWorkspace.openWorkspace(workspaceId, beforeOpen)`；它内部 `connectBlank` 建会话，再 `replaceMain(..., 'reveal')`，而 `replaceMain` 在 `panel === 'reveal'` 时会 `ctx.layout.selectPanel(null)`——`null` 的含义就是「显示当前会话」，主面板因此切回 `conversation`。插件自己在「新建会话」里已经绕开了这条路径（直接 `sessions.create({ workspaceId })`），但 hero 里的选择器不归插件控制。
+- 方案：在 `apply` 里给 `ctx.uiWorkspace.openWorkspace` 包一层，只在满足三个条件时接管：① 多会话页面已挂载（拦截器非空）；② 最近 2 秒内面板内有指针交互（避免误拦侧栏或别处发起的工作区操作）；③ 当前布局里有空白格。接管时**不**调用原方法，而是 `sessions.create({ workspaceId })` 并把新会话绑到那个空白格；其余情况调用原方法，行为不变。
+- 拦截器由页面组件在 `useEffect` 里注册/清理，因此离开面板后立即失效；卸载时把 `openWorkspace` 还原（仅当仍是自己那一层包装，避免覆盖别人的补丁）。
+- 测试：`scripts/smoke.mjs` 增加两条——`openWorkspace` 被包装、无拦截时仍委托给宿主。`npm test` 全绿。
+- 取舍：不改平台代码、不做全局 monkeypatch（只在 `ctx.effect` 生命周期内包装并在退出时还原）；空白会话被换工作区后，原空白会话留在会话列表里，未自动删除。
