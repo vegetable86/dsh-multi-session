@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.4'
+    const VERSION = '0.18.5'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -3098,6 +3098,9 @@ const NOOP = () => {}
         onPointerDownCapture: () => {
           panelPointerAt = Date.now()
         },
+        onFocusCapture: () => {
+          panelPointerAt = Date.now()
+        },
         },
           body,
           workspaceFor
@@ -3128,7 +3131,7 @@ const NOOP = () => {}
         ctx.effect(() => {
           const patched = function (workspaceId, beforeOpen) {
             const pick = workspacePickInterceptor
-            const recent = Date.now() - panelPointerAt < 2000
+            const recent = Date.now() - panelPointerAt < 6000
             if (typeof pick === 'function' && recent) {
               const pending = pick(workspaceId)
               if (pending && typeof pending.then === 'function') {
