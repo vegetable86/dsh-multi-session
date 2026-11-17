@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.5'
+    const VERSION = '0.18.6'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -3141,9 +3141,17 @@ const NOOP = () => {}
             }
             return openWorkspace.apply(uiWorkspace, arguments)
           }
-          uiWorkspace.openWorkspace = patched
+          try {
+            uiWorkspace.openWorkspace = patched
+          } catch (_sealed) {
+            return () => {}
+          }
           return () => {
-            if (uiWorkspace.openWorkspace === patched) uiWorkspace.openWorkspace = openWorkspace
+            try {
+              if (uiWorkspace.openWorkspace === patched) uiWorkspace.openWorkspace = openWorkspace
+            } catch (_sealed) {
+              /* A frozen service keeps its own method; nothing to restore. */
+            }
           }
         }, 'multi-session: keep workspace picks inside the panel')
       }
