@@ -71,10 +71,11 @@ vm.runInNewContext(readFileSync(join(root, 'client.js'), 'utf8'), sandbox, { fil
 const registrations = []
 const state = {
   phase: 'ready',
-  ids: ['session-a', 'session-b'],
+  ids: ['session-a', 'session-b', 'session-blank'],
   byId: {
     'session-a': { id: 'session-a', displayTitle: '标题甲', updatedAt: 200, running: true, blank: false },
     'session-b': { id: 'session-b', displayTitle: '标题乙', updatedAt: 100, running: false, blank: false },
+    'session-blank': { id: 'session-blank', displayTitle: '空白', updatedAt: 300, running: false, blank: true },
   },
 }
 const session = {
@@ -97,6 +98,16 @@ const workspaces = {
   ],
 }
 
+const openedInMain = []
+const openedWorkspaces = []
+const uiWorkspace = {
+  openSession: id => openedInMain.push(id),
+  openWorkspace: workspaceId => {
+    openedWorkspaces.push(workspaceId)
+    return Promise.resolve()
+  },
+}
+
 const ctx = {
   effect: fn => fn() || (() => {}),
   locale: { register: () => () => {}, bind: () => key => key },
@@ -115,6 +126,7 @@ const ctx = {
       return failing ? Promise.reject(new Error('boom')) : Promise.resolve('fresh-session-1234')
     },
   },
+  uiWorkspace,
 }
 const mod = bundle.factory(p => {
   if (p === 'react') return React
@@ -129,11 +141,10 @@ const useSessions = selector => selector(state)
 
 const container = document.getElementById('root')
 const root_ = createRoot(container)
-const openedInMain = []
 const mainProps = {
   t: key => key,
   sessions: ctx.sessions,
-  uiWorkspace: { openSession: id => openedInMain.push(id) },
+  uiWorkspace,
   useSessions,
   useWorkspaces: selector => selector(workspaces),
   SessionProvider: props => React.createElement('div', {
@@ -294,6 +305,39 @@ checks.push([
   'failed create leaves the pane usable',
 ])
 await act(async () => { emptyRoot.unmount() })
+
+// A workspace pick made from the blank hero stays in the tile it came from.
+failing = false
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 1,
+  panes: [{ id: 'w1', sessionId: 'session-blank' }],
+  maximizedId: null,
+}))
+const blankContainer = document.createElement('div')
+document.body.appendChild(blankContainer)
+const blankRoot = createRoot(blankContainer)
+await act(async () => { blankRoot.render(React.createElement(main.comp, mainProps)) })
+const createdBeforePickInPane = created.length
+await act(async () => {
+  blankContainer.querySelector('[data-theme]').dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }))
+  await ctx.uiWorkspace.openWorkspace('ws-2')
+  await Promise.resolve()
+})
+checks.push([
+  created.length === createdBeforePickInPane + 1 &&
+    created[created.length - 1] &&
+    created[created.length - 1].workspaceId === 'ws-2',
+  'a workspace pick inside a pane creates the session there',
+])
+checks.push([
+  openedWorkspaces.length === 0,
+  'the same pick skips the reveal that would leave the panel',
+])
+checks.push([
+  blankContainer.innerHTML.includes('data-session="fresh-session-1234"'),
+  'the picked workspace lands in the same pane',
+])
+await act(async () => { blankRoot.unmount() })
 
 // No hard cap: six panes render, and the toolbar keeps adding more.
 dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
