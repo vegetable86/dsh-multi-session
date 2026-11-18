@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.6'
+    const VERSION = '0.18.7'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -2379,23 +2379,20 @@ const NOOP = () => {}
       }, [board, moveTab])
 
       const addTab = useCallback(() => {
-        let snapshot = null
-        try {
-          snapshot = sessions.list.getSnapshot()
-        } catch (_unavailable) {
-          snapshot = null
-        }
-        const tab = makeTab(defaultPanes(snapshot), null, '')
+        /* A new tab is a clean slate: one empty tile to fill in, not a copy of
+           whatever the current tab happens to be showing. */
+        const tab = makeTab([{ id: nextPaneId(), sessionId: null }], null, '')
         setBoard(previous => ({
           tabs: previous ? previous.tabs.concat([tab]) : [tab],
           activeTabId: tab.id,
           immersive: previous ? previous.immersive === true : false,
           density: previous && previous.density === 'comfortable' ? 'comfortable' : 'compact',
+          theme: previous && THEMES[previous.theme] ? previous.theme : DEFAULT_THEME,
         }))
         setDraft(null)
         setPickingId(null)
         setWorkspaceFor(null)
-      }, [sessions])
+      }, [])
 
       const closeTab = useCallback(id => {
         setBoard(previous => {

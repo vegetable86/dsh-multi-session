@@ -370,3 +370,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 拦截器由页面组件在 `useEffect` 里注册/清理，因此离开面板后立即失效；卸载时把 `openWorkspace` 还原（仅当仍是自己那一层包装，避免覆盖别人的补丁）。
 - 测试：`scripts/smoke.mjs` 增加两条——`openWorkspace` 被包装、无拦截时仍委托给宿主。`npm test` 全绿。
 - 取舍：不改平台代码、不做全局 monkeypatch（只在 `ctx.effect` 生命周期内包装并在退出时还原）；空白会话被换工作区后，原空白会话留在会话列表里，未自动删除。
+
+## 33. v0.18.7：新标签是空白起点，且不再重置皮肤
+
+- 现象一：点标签栏的 + 得到的是一张和当前标签几乎一样的板子（因为它用 `defaultPanes` 填了最近两个会话），看起来像「复制了一个标签」。
+- 现象二：新建标签后整个面板的皮肤跳回跟随平台。
+- 原因一：`addTab` 调的是 `makeTab(defaultPanes(snapshot), null, '')`，而 `defaultPanes` 的语义是「首次打开时填最近会话」。
+- 原因二：`addTab` 重建 board 对象时只搬了 `tabs / activeTabId / immersive / density`，漏了 board 级的 `theme`；`normalizeBoard` 读不到 `theme` 就回退 `harness`。
+- 修法：`addTab` 改为 `makeTab([{ id: nextPaneId(), sessionId: null }], null, '')`——一张只有一个空格子的新板；并在重建 board 时显式带上 `theme: THEMES[previous.theme] ? previous.theme : DEFAULT_THEME`。首次打开（没有存储）仍然用 `defaultPanes` 填最近两个会话，这一点不变。
+- 测试：新增两条——新标签持久化后只有一格且 `sessionId` 为 `null`；在 Claude 皮肤下新建标签，`data-theme` 仍是 `claude` 且存储里的 `theme` 未丢。`npm test` 全绿。
+- 取舍：新标签不复制任何会话绑定，需要用户自己选；如果希望「空白标签里直接给两三个空槽位」，后续可加一个偏好项，而不是改默认。

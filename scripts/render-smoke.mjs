@@ -550,6 +550,7 @@ dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
   version: 6,
   activeTabId: 't1',
   immersive: false,
+  theme: 'claude',
   tabs: [
     {
       id: 't1',
@@ -651,6 +652,16 @@ checks.push([
 
 await act(async () => { await sleep(260) })
 const tabStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+const newestTab = tabStore.tabs[tabStore.tabs.length - 1]
+checks.push([
+  Array.isArray(newestTab.panes) && newestTab.panes.length === 1 &&
+    newestTab.panes.every(pane => pane.sessionId === null),
+  'a new tab starts empty instead of copying the current one',
+])
+checks.push([
+  tabStore.theme === 'claude' && tabContainer.querySelector('[data-theme]').getAttribute('data-theme') === 'claude',
+  'a new tab keeps the chosen skin',
+])
 checks.push([
   tabStore.version === 8 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
   'all tabs are persisted together',
