@@ -100,6 +100,18 @@ const workspaces = {
 
 const openedInMain = []
 const openedWorkspaces = []
+const readFiles = []
+const remote = {
+  workspaceFiles: {
+    read: (sessionId, path) => {
+      readFiles.push([sessionId, path])
+      return Promise.resolve({ ok: true, value: { text: 'first line\nsecond line', lines: 2 } })
+    },
+  },
+}
+const sidebarRight = {
+  openResource: address => { throw new Error('sidebarRight: no session surface is mounted (' + address + ')') },
+}
 const uiWorkspace = {
   openSession: id => openedInMain.push(id),
   openWorkspace: workspaceId => {
@@ -127,6 +139,8 @@ const ctx = {
     },
   },
   uiWorkspace,
+  sidebarRight,
+  remote,
 }
 const mod = bundle.factory(p => {
   if (p === 'react') return React
@@ -145,6 +159,7 @@ const mainProps = {
   t: key => key,
   sessions: ctx.sessions,
   uiWorkspace,
+  remote,
   useSessions,
   useWorkspaces: selector => selector(workspaces),
   SessionProvider: props => React.createElement('div', {
@@ -750,6 +765,20 @@ const drawerNode = swapContainer.querySelector('[data-changes-drawer]')
 checks.push([
   !!drawerNode && drawerNode.textContent.includes('changesEmpty'),
   'the changed-files drawer opens inside the tile',
+])
+
+await act(async () => {
+  ctx.sidebarRight.openResource('dsh-resource://file/session/session-a/src/a.ts')
+})
+await act(async () => { await sleep(20) })
+const fileDrawer = swapContainer.querySelector('[data-file-drawer]')
+checks.push([
+  !!fileDrawer && fileDrawer.textContent.includes('first line'),
+  'a transcript file link previews inside the tile instead of the right sidebar',
+])
+checks.push([
+  readFiles.length > 0 && readFiles[0][1] === 'src/a.ts',
+  'the preview asks the remote workspace reader for the linked path',
 ])
 
 const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })

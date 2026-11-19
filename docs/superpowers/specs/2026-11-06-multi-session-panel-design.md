@@ -390,3 +390,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 测试：新增两条——绑定会话的格子有 ria-label="changes" 按钮、点开后出现 [data-changes-drawer] 且空态文案正确。
 pm test 全绿。
 - 取舍：抽屉只显示最近一次带改动集的 turn，不做完整历史列表；跨 turn 聚合留给平台的右侧栏改动面板。
+
+## 35. v0.20.0：对话里的文件链接改为格内预览
+
+- 现象：点对话里的文件链接，弹出「无法打开文件 / sidebarRight: no session surface is mounted」。这个报错并非插件抛出，而是平台右栏（ui-sidebar-right）的命令在 `require()` 里找不到「屏幕上的会话」的已采纳 store——右栏只认当前主面板的会话 surface，而多会话是 root 作用域面板，本来就没有 session surface。
+- 触发链：ui-chat 把消息里的文件引用转成 `dsh-resource://file/session/<sessionId>/<path>`，交给 `ctx.sidebarRight.openResource`；ui-deliverables 的改动卡片则用 `dsh-resource://changes-review/session/<sessionId>/<seq>`。两者都会落到同一个 `require()`。
+- 方案：在 `apply` 里给 `ctx.sidebarRight.openResource` 包一层。解析地址得到 `{ kind: 'file' | 'changes', sessionId, path }`；如果该会话当前正由某个格子显示（`resourceSinks` 里注册了 sink），就把文件预览或改动抽屉开在那个格子里并返回；其余地址原样交回平台，行为不变。
+- 文件正文：`dsh-resource://file` 的 provider 只提供 `WorkspaceFileStat` 元数据，正文需要走 `remote.workspaceFiles.read(sessionId, path, { offset, limit })`，返回 `RemoteResult<WorkspaceFileText>`。抽屉按 1–4000 行加载，等宽字体展示，只读。
+- 抽屉归属：sink 由 `PaneShell` 在 `pane.sessionId` 变化时注册/清理；`filePath` 与 `changesOpen` 互斥，两者都渲染在 `styles.body`（`position: relative`）里，所以抽屉以格子为参照，不会溢出到面板外。
+- 测试：`scripts/smoke.mjs` 断言 `openResource` 被包装、无对应格子时委托宿主；`scripts/render-smoke.mjs` 断言 `dsh-resource://file/session/session-a/src/a.ts` 会在格子里出 `[data-file-drawer]` 并读到文件正文，且请求的路径正确。`npm test` 全绿。
+- 取舍：预览不提供语法高亮与编辑；超出 4000 行的文件只显示前 4000 行；地址指向的会话如果不在当前面板里，仍然交给平台（会照旧报错，但那是平台自己的边界）。

@@ -87,15 +87,20 @@ const ctx = {
     openSession(id) { this.opened.push(id) },
     openWorkspace(workspaceId) { this.opened.push('ws:' + workspaceId); return Promise.resolve() },
   },
+  sidebarRight: {
+    passed: [],
+    openResource(address) { this.passed.push(address) },
+  },
 }
 
 const originalOpenWorkspace = ctx.uiWorkspace.openWorkspace
+const originalOpenResource = ctx.sidebarRight.openResource
 
 const mod = bundle.factory(p => {
   if (p === 'react') return React
   throw new Error('bundle must not require anything but react, got: ' + p)
 })
-assert(JSON.stringify(mod.inject) === JSON.stringify(['slots', 'locale', 'sessions', 'uiWorkspace']), 'client inject list is slots/locale/sessions/uiWorkspace')
+assert(JSON.stringify(mod.inject) === JSON.stringify(['slots', 'locale', 'sessions', 'uiWorkspace', 'sidebarRight', 'remote']), 'client inject list covers slots, locale, sessions, workspace, right sidebar and remote')
 mod.apply(ctx)
 
 const main = registrations.find(r => r.opts.name === 'main')
@@ -124,5 +129,12 @@ assert(JSON.stringify(zhKeys) === JSON.stringify(enKeys), 'zh/en dictionary keys
 assert(ctx.uiWorkspace.openWorkspace !== originalOpenWorkspace, 'workspace reveal is wrapped so a pick can stay in the panel')
 await ctx.uiWorkspace.openWorkspace('ws-1')
 assert(ctx.uiWorkspace.opened.includes('ws:ws-1'), 'the wrapper delegates to the host when no pane is asking')
+
+assert(ctx.sidebarRight.openResource !== originalOpenResource, 'sidebar right openResource is wrapped for panes')
+await ctx.sidebarRight.openResource('dsh-resource://file/session/abc/src/a.ts')
+assert(
+  ctx.sidebarRight.passed.includes('dsh-resource://file/session/abc/src/a.ts'),
+  'the sidebar wrapper delegates when no pane owns the session',
+)
 
 console.log(process.exitCode ? 'SMOKE FAILED' : 'SMOKE OK')

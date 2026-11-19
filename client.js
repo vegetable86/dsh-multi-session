@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.19.0'
+    const VERSION = '0.20.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -136,6 +136,10 @@ const NOOP = () => {}
       changesBinary: '二进制文件，不显示差异',
       changesOversized: '文件太大，不显示差异',
       changesFiles: '个文件',
+      fileTitle: '文件预览',
+      fileLoading: '正在读取文件…',
+      fileEmpty: '文件是空的',
+      fileError: '读取文件失败',
       densityCompact: '紧凑密度',
       densityComfortable: '舒适密度',
       densityHint: '切换格子的间距与按钮尺寸',
@@ -221,6 +225,10 @@ const NOOP = () => {}
       changesBinary: 'Binary file — no diff shown',
       changesOversized: 'File too large — no diff shown',
       changesFiles: 'files',
+      fileTitle: 'File preview',
+      fileLoading: 'Reading the file…',
+      fileEmpty: 'The file is empty',
+      fileError: 'Could not read the file',
       densityCompact: 'Compact density',
       densityComfortable: 'Comfortable density',
       densityHint: 'Switch the spacing and the size of the pane buttons',
@@ -954,6 +962,28 @@ const NOOP = () => {}
         background: 'var(--ms-bg, var(--dsw-alias-bg-l1))',
       },
       diffHunk: { margin: '0 0 10px' },
+      filePre: {
+        margin: 0,
+        padding: '10px 12px',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        fontSize: 11.5,
+        lineHeight: 1.55,
+        whiteSpace: 'pre',
+        tabSize: 2,
+        color: 'var(--ms-text, var(--dsw-alias-label-primary))',
+      },
+      drawerNotice: {
+        flex: '1 1 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        padding: 20,
+        fontSize: 12,
+        color: 'var(--ms-text-secondary, var(--dsw-alias-label-secondary))',
+        textAlign: 'center',
+      },
       diffHunkHead: {
         color: 'var(--dsw-alias-label-tertiary)',
         padding: '2px 0',
@@ -2084,6 +2114,58 @@ const NOOP = () => {}
         body)
     }
 
+    /** Read-only preview of one workspace file, opened from a transcript link. */
+    function FileDrawer({ sessionId, path, remote, t, onClose }) {
+      const [state, setState] = useState('loading')
+      const [file, setFile] = useState(null)
+      const [attempt, setAttempt] = useState(0)
+      useEffect(() => {
+        const files = remote && remote.workspaceFiles
+        if (!files || typeof files.read !== 'function' || typeof path !== 'string' || path === '') {
+          setState('error')
+          return undefined
+        }
+        const controller = typeof AbortController === 'function' ? new AbortController() : null
+        let alive = true
+        setState('loading')
+        Promise.resolve()
+          .then(() => files.read(sessionId, path, { offset: 1, limit: 4000 }, controller ? controller.signal : undefined))
+          .then(result => {
+            if (!alive) return
+            if (result && result.ok && result.value) {
+              setFile(result.value)
+              setState('ready')
+              return
+            }
+            throw new Error('read failed')
+          })
+          .catch(error => {
+            if (!alive) return
+            console.error('[multi-session] could not read the file', error)
+            setState('error')
+          })
+        return () => { alive = false; if (controller) controller.abort() }
+      }, [sessionId, path, remote, attempt])
+      let body
+      if (state === 'loading') {
+        body = h('div', { style: styles.drawerNotice }, t('fileLoading'))
+      } else if (state === 'error') {
+        body = h('div', { style: styles.drawerNotice },
+          h('div', null, t('fileError')),
+          h('button', { type: 'button', style: styles.linkButton, onClick: () => setAttempt(value => value + 1) }, t('changesRetry')))
+      } else if (!file || file.text === '') {
+        body = h('div', { style: styles.drawerNotice }, t('fileEmpty'))
+      } else {
+        body = h('div', { style: styles.diffScroll },
+          h('pre', { style: styles.filePre }, file.text))
+      }
+      return h('div', { style: styles.changesDrawer, role: 'dialog', 'aria-label': t('fileTitle'), 'data-file-drawer': '' },
+        h('div', { style: styles.drawerHeader },
+          h('span', { style: styles.drawerTitle, title: path }, t('fileTitle') + ' · ' + path),
+          h(IconButton, { label: t('cancel'), onClick: onClose }, h(IconClose))),
+        body)
+    }
+
     /** Session-scoped slot body: the official conversation occurrence. */
     function ConversationPane({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, t }) {
       const tr = typeof t === 'function' ? t : key => key
@@ -2262,14 +2344,26 @@ const NOOP = () => {}
      */
     const PaneShell = React.memo(function PaneShell(props) {
       const {
-        pane, maximized, active, showActions, canClose, canOpenMain, picking, duplicate, sessions, SessionProvider, renderSlot, useSessions, t,
+        pane, maximized, active, showActions, canClose, canOpenMain, picking, duplicate, sessions, SessionProvider, renderSlot, useSessions, remote, t,
         creating, createError, onOpenPicker, onToggleMax, onMinimize, onOpenMain, onClose, onAssign, onClear, onCreate, onDismissPicker,
         onDragStart, onDragEnd,
       } = props
       const m = useMetrics()
       const [hover, setHover] = useState(false)
       const [changesOpen, setChangesOpen] = useState(false)
+      const [filePath, setFilePath] = useState(null)
       const timelineRef = useRef(null)
+      useEffect(() => {
+        if (!pane.sessionId) return undefined
+        const sink = {
+          openChanges: () => { setFilePath(null); setChangesOpen(true) },
+          openFile: path => { setChangesOpen(false); setFilePath(path) },
+        }
+        resourceSinks.set(pane.sessionId, sink)
+        return () => {
+          if (resourceSinks.get(pane.sessionId) === sink) resourceSinks.delete(pane.sessionId)
+        }
+      }, [pane.sessionId])
       const paneUi = useMemo(() => ({
         changesOpen,
         reportTimeline: value => { timelineRef.current = value },
@@ -2344,14 +2438,22 @@ const NOOP = () => {}
             error: createError,
             onClose: onDismissPicker,
           }) : null,
-          changesOpen
-            ? h(ChangesDrawer, {
+          filePath
+            ? h(FileDrawer, {
               sessionId: pane.sessionId,
-              timeline: timelineRef.current,
+              path: filePath,
+              remote,
               t,
-              onClose: () => setChangesOpen(false),
+              onClose: () => setFilePath(null),
             })
-            : null)))
+            : changesOpen
+              ? h(ChangesDrawer, {
+                sessionId: pane.sessionId,
+                timeline: timelineRef.current,
+                t,
+                onClose: () => setChangesOpen(false),
+              })
+              : null)))
     })
 
     /** One browser tab: title follows its first bound session until renamed. */
@@ -2487,8 +2589,44 @@ const NOOP = () => {}
     let workspacePickInterceptor = null
     let panelPointerAt = 0
 
+    /** Panes that can host a resource the right Sidebar cannot take without a session surface. */
+    const resourceSinks = new Map()
+
+    /** Decode one segment of a `dsh-resource://` address. */
+    function decodeSegment(value) {
+      try {
+        return decodeURIComponent(value)
+      } catch (error) {
+        return value
+      }
+    }
+
+    /** Map an address the right Sidebar would open onto the pane showing its session. */
+    function paneResourceTarget(address) {
+      if (typeof address !== 'string') return null
+      const filePrefix = 'dsh-resource://file/session/'
+      if (address.indexOf(filePrefix) === 0) {
+        const rest = address.slice(filePrefix.length)
+        const slash = rest.indexOf('/')
+        if (slash <= 0) return null
+        const sessionId = decodeSegment(rest.slice(0, slash))
+        const path = decodeSegment(rest.slice(slash + 1))
+        if (sessionId === '' || path === '') return null
+        return { kind: 'file', sessionId, path }
+      }
+      const reviewPrefix = 'dsh-resource://changes-review/session/'
+      if (address.indexOf(reviewPrefix) === 0) {
+        const rest = address.slice(reviewPrefix.length)
+        const slash = rest.indexOf('/')
+        const sessionId = decodeSegment(slash === -1 ? rest : rest.slice(0, slash))
+        if (sessionId === '') return null
+        return { kind: 'changes', sessionId }
+      }
+      return null
+    }
+
     function MultiSessionView(props) {
-      const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, uiWorkspace, t } = props
+      const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, uiWorkspace, remote, t } = props
       const [board, setBoard] = useState(loadBoard)
       const [pickingId, setPickingId] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
@@ -3153,6 +3291,7 @@ const NOOP = () => {}
             SessionProvider,
             renderSlot,
             useSessions,
+            remote,
             t,
             creating: creatingPane === pane.id,
             createError: createFailure && createFailure.paneId === pane.id ? createFailure.message : null,
@@ -3445,7 +3584,7 @@ const NOOP = () => {}
 
     /* --------------------------------------------------------------- apply */
 
-    const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
+    const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'sidebarRight', 'remote']
 
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'multi-session: dictionaries')
@@ -3485,11 +3624,43 @@ const NOOP = () => {}
         }, 'multi-session: keep workspace picks inside the panel')
       }
 
+      /* File links in the transcript hand their address to the right Sidebar,
+         whose commands require a mounted session surface. A tiled pane has
+         none, so keep those reads inside the pane that shows the session. */
+      const sidebarRight = ctx.sidebarRight
+      const openResource = sidebarRight && sidebarRight.openResource
+      if (typeof openResource === 'function') {
+        ctx.effect(() => {
+          const patched = function (address) {
+            const target = paneResourceTarget(address)
+            const sink = target ? resourceSinks.get(target.sessionId) : null
+            if (sink) {
+              if (target.kind === 'changes') sink.openChanges()
+              else sink.openFile(target.path)
+              return undefined
+            }
+            return openResource.apply(sidebarRight, arguments)
+          }
+          try {
+            sidebarRight.openResource = patched
+          } catch (_sealed) {
+            return () => {}
+          }
+          return () => {
+            try {
+              if (sidebarRight.openResource === patched) sidebarRight.openResource = openResource
+            } catch (_sealed) {
+              /* A frozen service keeps its own method; nothing to restore. */
+            }
+          }
+        }, 'multi-session: keep file links inside the panel')
+      }
+
       ctx.slots.inject('main', () => ctx.slots.register({
         name: 'main',
         key: PANEL_ID,
         locale: NS,
-        inject: () => ({ sessions, uiWorkspace: ctx.uiWorkspace }),
+        inject: () => ({ sessions, uiWorkspace: ctx.uiWorkspace, remote: ctx.remote }),
         children: { [PANE_SLOT]: { kind: 'single', scope: 'session' } },
       }, MultiSessionPage))
 
