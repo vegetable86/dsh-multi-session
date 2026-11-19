@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.20.1'
+    const VERSION = '0.21.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -140,6 +140,7 @@ const NOOP = () => {}
       fileLoading: '正在读取文件…',
       fileEmpty: '文件是空的',
       fileError: '读取文件失败',
+      drawerResize: '拖动调整抽屉宽度',
       densityCompact: '紧凑密度',
       densityComfortable: '舒适密度',
       densityHint: '切换格子的间距与按钮尺寸',
@@ -229,6 +230,7 @@ const NOOP = () => {}
       fileLoading: 'Reading the file…',
       fileEmpty: 'The file is empty',
       fileError: 'Could not read the file',
+      drawerResize: 'Drag to resize the drawer',
       densityCompact: 'Compact density',
       densityComfortable: 'Comfortable density',
       densityHint: 'Switch the spacing and the size of the pane buttons',
@@ -890,6 +892,26 @@ const NOOP = () => {}
         background: 'var(--ms-surface, var(--dsw-alias-bg-overlay))',
         borderLeft: '1px solid var(--ms-border, var(--dsw-alias-border-l1))',
         boxShadow: '-12px 0 28px rgba(0, 0, 0, 0.18)',
+      },
+      drawerHandle: {
+        position: 'absolute',
+        left: -4,
+        top: 0,
+        bottom: 0,
+        width: 8,
+        cursor: 'col-resize',
+        touchAction: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 2,
+      },
+      drawerHandleLine: {
+        width: 2,
+        height: 34,
+        borderRadius: 2,
+        background: 'var(--ms-border-strong, var(--dsw-alias-border-l2))',
+        opacity: 0.75,
       },
       drawerHeader: {
         display: 'flex',
@@ -1990,11 +2012,31 @@ const NOOP = () => {}
       }).toString()
     }
 
+    /** A drawer takes the whole pane until the resize grip writes a pixel width. */
+    function drawerStyle(width) {
+      if (!width) return styles.changesDrawer
+      return Object.assign({}, styles.changesDrawer, { width: width + 'px' })
+    }
+
+    /** Drag grip on the drawer's left edge; the pane owns the width state. */
+    function DrawerHandle({ t, onResizeStart }) {
+      if (typeof onResizeStart !== 'function') return null
+      return h('div', {
+        style: styles.drawerHandle,
+        role: 'separator',
+        'aria-orientation': 'vertical',
+        'data-drawer-handle': '',
+        title: t('drawerResize'),
+        onMouseDown: onResizeStart,
+        onPointerDown: onResizeStart,
+      }, h('span', { style: styles.drawerHandleLine }))
+    }
+
     /**
      * Right-side drawer owned by one pane: lists the files the session changed
      * in its latest recorded turn and shows the diff of the selected file.
      */
-    function ChangesDrawer({ sessionId, timeline, t, onClose }) {
+    function ChangesDrawer({ sessionId, timeline, t, width, onResizeStart, onClose }) {
       const coords = useMemo(() => latestChangesOf(timeline), [timeline])
       const [state, setState] = useState('loading')
       const [summary, setSummary] = useState(null)
@@ -2107,7 +2149,8 @@ const NOOP = () => {}
         body = h('div', { style: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 } }, head, diffBody)
       }
 
-      return h('div', { style: styles.changesDrawer, role: 'dialog', 'aria-label': t('changesTitle'), 'data-changes-drawer': '' },
+      return h('div', { style: drawerStyle(width), role: 'dialog', 'aria-label': t('changesTitle'), 'data-changes-drawer': '' },
+        h(DrawerHandle, { t, onResizeStart }),
         h('div', { style: styles.drawerHeader },
           h('span', { style: styles.drawerTitle }, t('changesTitle')),
           h(IconButton, { label: t('cancel'), onClick: onClose }, h(IconClose))),
@@ -2115,7 +2158,7 @@ const NOOP = () => {}
     }
 
     /** Read-only preview of one workspace file, opened from a transcript link. */
-    function FileDrawer({ sessionId, path, remote, t, onClose }) {
+    function FileDrawer({ sessionId, path, remote, t, width, onResizeStart, onClose }) {
       const [state, setState] = useState('loading')
       const [file, setFile] = useState(null)
       const [attempt, setAttempt] = useState(0)
@@ -2159,7 +2202,8 @@ const NOOP = () => {}
         body = h('div', { style: styles.diffScroll },
           h('pre', { style: styles.filePre }, file.text))
       }
-      return h('div', { style: styles.changesDrawer, role: 'dialog', 'aria-label': t('fileTitle'), 'data-file-drawer': '' },
+      return h('div', { style: drawerStyle(width), role: 'dialog', 'aria-label': t('fileTitle'), 'data-file-drawer': '' },
+        h(DrawerHandle, { t, onResizeStart }),
         h('div', { style: styles.drawerHeader },
           h('span', { style: styles.drawerTitle, title: path }, t('fileTitle') + ' · ' + path),
           h(IconButton, { label: t('cancel'), onClick: onClose }, h(IconClose))),
@@ -2352,6 +2396,35 @@ const NOOP = () => {}
       const [hover, setHover] = useState(false)
       const [changesOpen, setChangesOpen] = useState(false)
       const [filePath, setFilePath] = useState(null)
+      const [drawerWidth, setDrawerWidth] = useState(420)
+      const bodyRef = useRef(null)
+      const resizingRef = useRef(false)
+      const beginDrawerResize = useCallback(event => {
+        if (event.button !== 0) return
+        if (resizingRef.current) return
+        const body = bodyRef.current
+        if (!body) return
+        resizingRef.current = true
+        event.preventDefault()
+        const rect = body.getBoundingClientRect()
+        const move = moveEvent => {
+          const next = clamp(rect.right - moveEvent.clientX, 300, Math.max(320, rect.width - 120))
+          setDrawerWidth(Math.round(next))
+        }
+        const finish = () => {
+          resizingRef.current = false
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('mousemove', move)
+          window.removeEventListener('pointerup', finish)
+          window.removeEventListener('mouseup', finish)
+          window.removeEventListener('pointercancel', finish)
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('mousemove', move)
+        window.addEventListener('pointerup', finish)
+        window.addEventListener('mouseup', finish)
+        window.addEventListener('pointercancel', finish)
+      }, [])
       const timelineRef = useRef(null)
       useEffect(() => {
         if (!pane.sessionId) return undefined
@@ -2409,7 +2482,7 @@ const NOOP = () => {}
           onDragEnd,
         }),
         h(PaneUiContext.Provider, { value: paneUi },
-          h('div', { style: styles.body },
+          h('div', { style: styles.body, ref: bodyRef },
           duplicate
             ? h('div', { style: styles.center },
               h('span', { style: styles.duplicateNote }, t('duplicatePane')))
@@ -2444,6 +2517,8 @@ const NOOP = () => {}
               path: filePath,
               remote,
               t,
+              width: drawerWidth,
+              onResizeStart: beginDrawerResize,
               onClose: () => setFilePath(null),
             })
             : changesOpen
@@ -2451,6 +2526,8 @@ const NOOP = () => {}
                 sessionId: pane.sessionId,
                 timeline: timelineRef.current,
                 t,
+                width: drawerWidth,
+                onResizeStart: beginDrawerResize,
                 onClose: () => setChangesOpen(false),
               })
               : null)))

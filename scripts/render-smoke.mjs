@@ -781,6 +781,18 @@ checks.push([
   'the preview asks the remote workspace reader for the linked path',
 ])
 
+const drawerHandle = fileDrawer && fileDrawer.querySelector('[data-drawer-handle]')
+checks.push([!!drawerHandle, 'a drawer offers a resize grip'])
+if (drawerHandle && fileDrawer.parentElement) {
+  fileDrawer.parentElement.getBoundingClientRect = () => ({
+    left: 0, right: 1000, width: 1000, top: 0, bottom: 600, height: 600, x: 0, y: 0,
+  })
+  await act(async () => { drawerHandle.dispatchEvent(pointer('mousedown', 700, 300)) })
+  await act(async () => { emitWindow('mousemove', pointer('mousemove', 520, 300)) })
+  await act(async () => { emitWindow('mouseup', pointer('mouseup', 520, 300)) })
+  checks.push([fileDrawer.style.width === '480px', 'dragging the grip resizes the drawer'])
+}
+
 const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
 Object.defineProperty(dropEvent, 'dataTransfer', {
   value: { types: ['text/x-multisession-pane'], getData: () => 'p1' },

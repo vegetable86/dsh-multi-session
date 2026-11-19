@@ -406,3 +406,9 @@ pm test 全绿。
 - 原因：Cordis 的服务代理按“声明即许可”工作。只声明 `remote` 只允许访问 `ctx.remote` 本身，访问它下面的 `workspaceFiles` 子命名空间还需要单独声明 `remote.workspaceFiles`；平台自己的 `ui-sidebar-files` 也是这么写的（`inject = ['...','remote','remote.workspaceFiles']`）。
 - 修法：客户端 `inject` 从 6 项扩到 7 项，补上 `remote.workspaceFiles`；其余代码不变。
 - 测试：`scripts/smoke.mjs` 的 inject 断言同步为 7 项；`npm test` 全绿。
+## 37. v0.21.0：抽屉可拖宽
+
+- 现象：改动/文件预览抽屉固定 420px，长路径和 diff 行被挤断，无法调整。
+- 修法：`PaneShell` 持有 `drawerWidth` 状态（默认 420），抽屉左右两侧共用；抽屉左边缘加一个 8px 的拖柄（`DrawerHandle`，`role="separator"`），按下后监听窗口的 `pointermove`/`mousemove`，宽度 = 格内容区右边界 − 指针 x，夹在 [300, max(320, 格宽 − 120)] 之间；`pointerup`/`mouseup`/`pointercancel` 收尾。`onPointerDown` 与 `onMouseDown` 都接，用 `resizingRef` 去重，避免同一手势起两套监听。
+- 宽度按格子存在组件状态里：同一格的改动抽屉与文件预览共用它；切标签或重挂载回到 420px（未做持久化，避免把瞬时 UI 状态写进布局）。
+- 测试：`scripts/render-smoke.mjs` 断言抽屉有 `[data-drawer-handle]`，按住拖到 520px 后抽屉 `style.width === '480px'`。`npm test` 全绿。
