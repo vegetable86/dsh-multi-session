@@ -400,3 +400,9 @@ pm test 全绿。
 - 抽屉归属：sink 由 `PaneShell` 在 `pane.sessionId` 变化时注册/清理；`filePath` 与 `changesOpen` 互斥，两者都渲染在 `styles.body`（`position: relative`）里，所以抽屉以格子为参照，不会溢出到面板外。
 - 测试：`scripts/smoke.mjs` 断言 `openResource` 被包装、无对应格子时委托宿主；`scripts/render-smoke.mjs` 断言 `dsh-resource://file/session/session-a/src/a.ts` 会在格子里出 `[data-file-drawer]` 并读到文件正文，且请求的路径正确。`npm test` 全绿。
 - 取舍：预览不提供语法高亮与编辑；超出 4000 行的文件只显示前 4000 行；地址指向的会话如果不在当前面板里，仍然交给平台（会照旧报错，但那是平台自己的边界）。
+## 36. v0.20.1：补声明 `remote.workspaceFiles`
+
+- 现象：点开文件链接，整块面板落到 `PageBoundary`，提示 `cannot get property "remote.workspaceFiles" without inject`。
+- 原因：Cordis 的服务代理按“声明即许可”工作。只声明 `remote` 只允许访问 `ctx.remote` 本身，访问它下面的 `workspaceFiles` 子命名空间还需要单独声明 `remote.workspaceFiles`；平台自己的 `ui-sidebar-files` 也是这么写的（`inject = ['...','remote','remote.workspaceFiles']`）。
+- 修法：客户端 `inject` 从 6 项扩到 7 项，补上 `remote.workspaceFiles`；其余代码不变。
+- 测试：`scripts/smoke.mjs` 的 inject 断言同步为 7 项；`npm test` 全绿。

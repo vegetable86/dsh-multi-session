@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.20.0'
+    const VERSION = '0.20.1'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -3584,7 +3584,7 @@ const NOOP = () => {}
 
     /* --------------------------------------------------------------- apply */
 
-    const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'sidebarRight', 'remote']
+    const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'sidebarRight', 'remote', 'remote.workspaceFiles']
 
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'multi-session: dictionaries')
