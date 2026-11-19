@@ -380,3 +380,13 @@ MultiSessionPage                // main 槽位条目，root scope
 - 修法：`addTab` 改为 `makeTab([{ id: nextPaneId(), sessionId: null }], null, '')`——一张只有一个空格子的新板；并在重建 board 时显式带上 `theme: THEMES[previous.theme] ? previous.theme : DEFAULT_THEME`。首次打开（没有存储）仍然用 `defaultPanes` 填最近两个会话，这一点不变。
 - 测试：新增两条——新标签持久化后只有一格且 `sessionId` 为 `null`；在 Claude 皮肤下新建标签，`data-theme` 仍是 `claude` 且存储里的 `theme` 未丢。`npm test` 全绿。
 - 取舍：新标签不复制任何会话绑定，需要用户自己选；如果希望「空白标签里直接给两三个空槽位」，后续可加一个偏好项，而不是改默认。
+## 34. v0.19.0：格子内的改动抽屉
+
+- 现象：多会话面板里的对话看不到「这一轮改了哪些文件」；平台的改动卡片与右侧栏改动面板都不在格子里。
+- 数据来源：对话的 chat 视图快照里带着 	imeline（ConversationTimelineSnapshot，按 turn 编号存 TurnLocation），每个 turn 的 data.get('deliverables') 里有 { changes?: { seq } }——seq 指向那一轮的改动集。改动的文件名与增删行数走 GET api/changes.summary?sessionId&seq，单个文件的逐行 diff 走 GET api/changes.diff?sessionId&seq&index。
+- 交互：绑定会话的格子标题栏多一个「改动」按钮（悬停/活动格可见）；点开在格子右侧滑出 420px 抽屉，列出文件、点击看 diff、可返回列表；底部「在编辑器中打开」走 POST api/changes.open（与平台改动卡片同一入口）。没有改动时显示空态。
+- 实现：PaneUiContext 由 PaneShell 提供，ConversationPane 把最近一个带 deliverables.changes 的 timeline 上报给外壳；抽屉本身挂在外壳的 body 里（position: absolute），所以它不依赖对话组件的布局，也不会被 conversation.content 的滚动容器裁掉。
+- 只读：抽屉只发 GET 与「打开」请求，不改工作区、不应用补丁。
+- 测试：新增两条——绑定会话的格子有 ria-label="changes" 按钮、点开后出现 [data-changes-drawer] 且空态文案正确。
+pm test 全绿。
+- 取舍：抽屉只显示最近一次带改动集的 turn，不做完整历史列表；跨 turn 聚合留给平台的右侧栏改动面板。

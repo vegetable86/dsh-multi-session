@@ -26,6 +26,7 @@ npm 包：`@vegataa/dsh-multi-session`
 14. 格子里的对话也换上了 Claude 风格的暖色主题：面板在自己的根节点上重设 DSH 的主题变量（`--dsw-alias-*` 与 `--dsw-font-markdown-*`），对话区、代码块、滚动条、边框会跟着一起变，正文改用偏暖的衬线字体；这套配色只作用于多会话面板，其他页面不受影响。
 15. 标签栏右侧的调色板按钮可以换风格：跟随平台（默认）、Claude 浅色、Claude 深色、ChatGPT、Terminal 绿、Terminal 琥珀。选择会存进布局，刷新后保留，所有标签共用一套皮肤。
 16. 空白会话页面里的「工作区」选择器也留在本页：在多会话里挑一个新工作区，会直接在那个空白的格子里开一个新会话，不会跳回单个对话页。
+17. 每个绑定了会话的格子，标题栏里有一个「改动」按钮：点开会在格子右侧滑出抽屉，列出这一轮改过的文件（路径、增删行数），点文件可以看逐行 diff，也能用「在编辑器中打开」直接跳到外部编辑器。抽屉里只读，不会改到工作区。
 
 ## 实现要点
 
@@ -47,6 +48,7 @@ npm 包：`@vegataa/dsh-multi-session`
 - 密度不是两套样式表：`METRICS` 里放紧凑 / 舒适两档的尺寸，组件通过 `DensityContext` 取当前这档，拖动计算（`beginSplitDrag` 的可用像素、最小格宽高）也跟着同一份数字走，避免尺寸和命中区各算各的。
 - 分隔条只在视觉上是 6px / 10px 的细线：外层是命中区，内层 `span` 才是那条线，悬停只改内层颜色和透明度，不改布局，所以拖起来不会抖。
 - 动画只用 Web Animations API（animateIn 统一曲线）和 CSS 过渡，不注入额外样式表；每次调用都先看 prefers-reduced-motion。
+- 改动抽屉读的是平台自己的接口（`api/changes.summary` 与 `api/changes.diff`），坐标从对话的 chat 视图时间线里取：每个 turn 的 `deliverables.changes.seq` 指向那一轮的改动集。插件不缓存、不重算 diff，只是把同一份数据搬进格子里；「在编辑器中打开」走 `api/changes.open`，和平台右侧栏的改动面板是同一个后端。
 - 主题不是改平台：多会话面板在根节点注入一组 `--dsw-alias-*` 变量（`themeVars`），ui-conversation / ui-chat 的 28 个样式模块都用这些 token，变量沿子树继承，所以格子里的原生对话会被一起重新着色；插件自己的标签栏、卡片、强调条则用 `--ms-*` 变量，两者共用同一份 `THEME` 色板。
 - 标签拖动排序走 HTML5 拖放（自定义类型 `text/x-multisession-tab`），松手时只重排 `board.tabs` 数组，`activeTabId` 不变、布局不重建；拖到标签条空白处则移到最末。落点只按左右半区判断插到目标前还是后，不额外算几何。
 - 空白会话的 hero 工作区选择器来自平台，本身走 `uiWorkspace.openWorkspace` → `replaceMain(..., 'reveal')` → `layout.selectPanel(null)`，因此会切走主面板。插件在 `apply` 里给 `openWorkspace` 包了一层：面板挂载期间、且这次点击确实发生在面板内（6 秒内的指针交互）、当前又有空白格时，把「在那个工作区建会话」接过来，直接 `sessions.create({ workspaceId })` 绑到那个格子；其他来源的调用原样交回宿主。

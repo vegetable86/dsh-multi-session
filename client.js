@@ -3,12 +3,12 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useMemo, useRef, useCallback } = React
+    const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React
 
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.18.7'
+    const VERSION = '0.19.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -45,6 +45,8 @@ const NOOP = () => {}
     }
     const DensityContext = React.createContext(METRICS.compact)
     const useMetrics = () => React.useContext(DensityContext)
+    /* Pane-local UI handoff: the header button opens a drawer the session body owns. */
+    const PaneUiContext = React.createContext(null)
 
     /** Animations are decoration: honour the OS setting instead of fighting it. */
     const reduceMotion = () => {
@@ -122,6 +124,18 @@ const NOOP = () => {}
       tabTitlePlaceholder: '标签名称',
       openInMain: '在主面板打开',
       movePane: '拖动标题栏到另一个格子可交换两者的会话',
+      changes: '改动',
+      changesTitle: '本会话改动的文件',
+      changesEmpty: '这个会话还没有记录到文件改动',
+      changesEmptyHint: '等会话改过文件后再来看，或直接在对话里点开摘要卡片。',
+      changesLoading: '正在读取改动…',
+      changesError: '读取改动失败',
+      changesRetry: '重试',
+      changesBack: '返回文件列表',
+      changesOpenExternal: '在编辑器中打开',
+      changesBinary: '二进制文件，不显示差异',
+      changesOversized: '文件太大，不显示差异',
+      changesFiles: '个文件',
       densityCompact: '紧凑密度',
       densityComfortable: '舒适密度',
       densityHint: '切换格子的间距与按钮尺寸',
@@ -195,6 +209,18 @@ const NOOP = () => {}
       tabTitlePlaceholder: 'Tab name',
       openInMain: 'Open in main view',
       movePane: 'Drag the title bar onto another tile to swap their sessions',
+      changes: 'Changes',
+      changesTitle: 'Files changed in this session',
+      changesEmpty: 'No file changes recorded for this session yet',
+      changesEmptyHint: 'Come back once the session has written a file, or open the summary card in the transcript.',
+      changesLoading: 'Loading changes…',
+      changesError: 'Could not load changes',
+      changesRetry: 'Retry',
+      changesBack: 'Back to the file list',
+      changesOpenExternal: 'Open in editor',
+      changesBinary: 'Binary file — no diff shown',
+      changesOversized: 'File too large — no diff shown',
+      changesFiles: 'files',
       densityCompact: 'Compact density',
       densityComfortable: 'Comfortable density',
       densityHint: 'Switch the spacing and the size of the pane buttons',
@@ -822,6 +848,7 @@ const NOOP = () => {}
         position: 'relative',
       },
       conversation: {
+        position: 'relative',
         flex: '1 1 auto',
         minHeight: 0,
         display: 'flex',
@@ -833,6 +860,107 @@ const NOOP = () => {}
         textAlign: 'center',
         padding: '0 12px',
       },
+      drawerScrim: {
+        position: 'absolute',
+        inset: 0,
+        zIndex: 30,
+        background: 'rgba(0, 0, 0, 0.18)',
+        border: 'none',
+        padding: 0,
+        cursor: 'default',
+      },
+      changesDrawer: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 31,
+        width: 'min(420px, 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        background: 'var(--ms-surface, var(--dsw-alias-bg-overlay))',
+        borderLeft: '1px solid var(--ms-border, var(--dsw-alias-border-l1))',
+        boxShadow: '-12px 0 28px rgba(0, 0, 0, 0.18)',
+      },
+      drawerHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 10px',
+        borderBottom: '1px solid var(--ms-border, var(--dsw-alias-border-l1))',
+      },
+      drawerTitle: {
+        flex: '1 1 auto',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: 12.5,
+        fontWeight: 600,
+        color: 'var(--ms-text, var(--dsw-alias-label-primary))',
+      },
+      drawerBody: {
+        flex: '1 1 auto',
+        minHeight: 0,
+        overflowY: 'auto',
+        padding: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      },
+      changeRow: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        padding: '6px 8px',
+        border: '1px solid transparent',
+        borderRadius: 8,
+        background: 'transparent',
+        color: 'var(--ms-text, var(--dsw-alias-label-primary))',
+        font: 'inherit',
+        fontSize: 12.5,
+        textAlign: 'left',
+        cursor: 'pointer',
+      },
+      changePath: {
+        flex: '1 1 auto',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        fontSize: 12,
+      },
+      changeStats: {
+        flex: '0 0 auto',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        fontSize: 11.5,
+        color: 'var(--dsw-alias-label-tertiary)',
+      },
+      diffScroll: {
+        flex: '1 1 auto',
+        minHeight: 0,
+        overflow: 'auto',
+        margin: 0,
+        padding: '8px 10px',
+        borderTop: '1px solid var(--ms-border, var(--dsw-alias-border-l1))',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        fontSize: 11.5,
+        lineHeight: 1.55,
+        whiteSpace: 'pre',
+        tabSize: 2,
+        background: 'var(--ms-bg, var(--dsw-alias-bg-l1))',
+      },
+      diffHunk: { margin: '0 0 10px' },
+      diffHunkHead: {
+        color: 'var(--dsw-alias-label-tertiary)',
+        padding: '2px 0',
+      },
+      diffAdd: { color: 'var(--dsw-alias-state-success-primary)' },
+      diffDel: { color: 'var(--dsw-alias-label-error)' },
+
       center: {
         flex: '1 1 auto',
         display: 'flex',
@@ -1059,6 +1187,14 @@ const NOOP = () => {}
         h('path', { d: 'M8 3.5h4.5V8' }),
         h('path', { d: 'M12.2 3.8 7.4 8.6' }),
         h('path', { d: 'M11.5 12.5H4.5V5.5' }))
+    }
+
+    /* Two stacked document lines with a plus: the changed-files drawer. */
+    function IconChanges() {
+      return h(Icon, null,
+        h('path', { d: 'M4 2.5h5.2L12 5.3v8.2H4z' }),
+        h('path', { d: 'M9 2.7v2.8h2.8' }),
+        h('path', { d: 'M6 9h4M8 7v4' }))
     }
 
     function IconExpand() {
@@ -1632,7 +1768,7 @@ const NOOP = () => {}
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, active, showActions, canClose, canOpenMain, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onClose, onDragStart, onDragEnd }) {
+    function PaneHeader({ pane, maximized, active, showActions, canClose, canOpenMain, canOpenChanges, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onOpenChanges, onClose, onDragStart, onDragEnd }) {
       const m = useMetrics()
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
@@ -1680,6 +1816,7 @@ const NOOP = () => {}
             pointerEvents: showActions === false ? 'none' : 'auto',
           }),
         },
+          canOpenChanges ? h(IconButton, { label: t('changes'), onClick: onOpenChanges }, h(IconChanges)) : null,
           canOpenMain ? h(IconButton, { label: t('openInMain'), onClick: onOpenMain }, h(IconOpenMain)) : null,
           h(IconButton, { label: t('minimize'), onClick: onMinimize }, h(IconMinimize)),
           h(IconButton, { label: maximized ? t('restore') : t('maximize'), onClick: onToggleMax },
@@ -1784,12 +1921,188 @@ const NOOP = () => {}
       return { reference, failure }
     }
 
+    /* --------------------------------------------------------- changes drawer */
+
+    /**
+     * Coordinates of the newest recorded change set in a conversation timeline.
+     * `deliverables` turn data is published by ui-deliverables; absent when that
+     * plugin is not composed in, in which case the drawer stays empty.
+     */
+    function latestChangesOf(timeline) {
+      if (!timeline || !timeline.turns || typeof timeline.turns.forEach !== 'function') return null
+      let best = null
+      timeline.turns.forEach((turn, number) => {
+        let data = null
+        try {
+          data = turn && turn.data && typeof turn.data.get === 'function' ? turn.data.get('deliverables') : null
+        } catch (error) {
+          data = null
+        }
+        const seq = data && data.changes ? data.changes.seq : null
+        if (typeof seq === 'number' && (best === null || number > best.turn)) best = { turn: number, seq }
+      })
+      return best
+    }
+
+    function changesSummaryUrl(sessionId, seq) {
+      return 'api/changes.summary?' + new URLSearchParams({ sessionId: String(sessionId), seq: String(seq) }).toString()
+    }
+
+    function changesDiffUrl(sessionId, seq, index) {
+      return 'api/changes.diff?' + new URLSearchParams({
+        sessionId: String(sessionId), seq: String(seq), index: String(index),
+      }).toString()
+    }
+
+    function changesOpenUrl(sessionId, seq, index) {
+      return 'api/changes.open?' + new URLSearchParams({
+        sessionId: String(sessionId), seq: String(seq), index: String(index),
+      }).toString()
+    }
+
+    /**
+     * Right-side drawer owned by one pane: lists the files the session changed
+     * in its latest recorded turn and shows the diff of the selected file.
+     */
+    function ChangesDrawer({ sessionId, timeline, t, onClose }) {
+      const coords = useMemo(() => latestChangesOf(timeline), [timeline])
+      const [state, setState] = useState('loading')
+      const [summary, setSummary] = useState(null)
+      const [selected, setSelected] = useState(null)
+      const [diff, setDiff] = useState(null)
+      const [diffState, setDiffState] = useState('idle')
+      const [attempt, setAttempt] = useState(0)
+
+      useEffect(() => {
+        if (!coords) {
+          setSummary(null)
+          setState('empty')
+          return undefined
+        }
+        let alive = true
+        setState('loading')
+        fetch(changesSummaryUrl(sessionId, coords.seq), { credentials: 'same-origin' })
+          .then(response => (response.ok ? response.json() : Promise.reject(new Error('HTTP ' + response.status))))
+          .then(value => {
+            if (!alive) return
+            setSummary(value)
+            setState('ready')
+          })
+          .catch(error => {
+            if (!alive) return
+            console.error('[multi-session] could not load changed files', error)
+            setState('error')
+          })
+        return () => { alive = false }
+      }, [sessionId, coords ? coords.seq : null, attempt])
+
+      useEffect(() => {
+        if (selected === null || !coords) {
+          setDiff(null)
+          setDiffState('idle')
+          return undefined
+        }
+        let alive = true
+        setDiffState('loading')
+        fetch(changesDiffUrl(sessionId, coords.seq, selected), { credentials: 'same-origin' })
+          .then(response => (response.ok ? response.json() : Promise.reject(new Error('HTTP ' + response.status))))
+          .then(value => {
+            if (!alive) return
+            setDiff(value)
+            setDiffState('ready')
+          })
+          .catch(error => {
+            if (!alive) return
+            console.error('[multi-session] could not load the file diff', error)
+            setDiffState('error')
+          })
+        return () => { alive = false }
+      }, [sessionId, coords ? coords.seq : null, selected])
+
+      const openExternal = useCallback(index => {
+        if (!coords) return
+        fetch(changesOpenUrl(sessionId, coords.seq, index), { method: 'POST', credentials: 'same-origin' })
+          .catch(error => { console.error('[multi-session] could not open the file on the host', error) })
+      }, [sessionId, coords ? coords.seq : null])
+
+      const files = summary && Array.isArray(summary.files) ? summary.files : []
+      const current = selected !== null && files[selected] ? files[selected] : null
+
+      let body = null
+      if (state === 'loading') {
+        body = h('div', { style: styles.center }, h('span', { style: styles.emptyHint }, t('changesLoading')))
+      } else if (state === 'error') {
+        body = h('div', { style: styles.center },
+          h('span', { style: styles.emptyTitle }, t('changesError')),
+          h('button', { type: 'button', style: styles.primaryButton, onClick: () => setAttempt(value => value + 1) }, t('changesRetry')))
+      } else if (state === 'empty') {
+        body = h('div', { style: styles.center },
+          h('span', { style: styles.emptyTitle }, t('changesEmpty')),
+          h('span', { style: styles.emptyHint }, t('changesEmptyHint')))
+      } else if (current === null) {
+        body = h('div', { style: styles.drawerBody },
+          h('div', { style: styles.changeStats }, String(summary.total !== undefined ? summary.total : files.length) + ' ' + t('changesFiles')),
+          files.length === 0
+            ? h('div', { style: styles.center }, h('span', { style: styles.emptyHint }, t('changesEmpty')))
+            : files.map((file, index) => h('button', {
+              key: file.path + ':' + index,
+              type: 'button',
+              style: styles.changeRow,
+              title: file.display,
+              onClick: () => setSelected(index),
+            },
+              h('span', { style: styles.changePath }, file.display),
+              h('span', { style: styles.changeStats }, '+' + file.added + ' / -' + file.deleted))))
+      } else {
+        const head = h('div', { style: styles.drawerHeader },
+          h(IconButton, { label: t('changesBack'), onClick: () => setSelected(null) }, h(IconChevron)),
+          h('span', { style: styles.drawerTitle }, current.display),
+          h(IconButton, { label: t('changesOpenExternal'), onClick: () => openExternal(selected) }, h(IconOpenMain)))
+        let diffBody = null
+        if (diffState === 'loading') diffBody = h('div', { style: styles.center }, h('span', { style: styles.emptyHint }, t('changesLoading')))
+        else if (diffState === 'error') diffBody = h('div', { style: styles.center }, h('span', { style: styles.emptyTitle }, t('changesError')))
+        else if (diff && diff.kind === 'binary') diffBody = h('div', { style: styles.center }, h('span', { style: styles.emptyHint }, t('changesBinary')))
+        else if (diff && diff.kind === 'oversized') diffBody = h('div', { style: styles.center }, h('span', { style: styles.emptyHint }, t('changesOversized')))
+        else if (diff) {
+          diffBody = h('pre', { style: styles.diffScroll }, (diff.hunks || []).map((hunk, hunkIndex) => h('div', {
+            key: 'hunk-' + hunkIndex,
+            style: styles.diffHunk,
+          },
+            h('div', { style: styles.diffHunkHead }, '@@ -' + hunk.oldStart + ',' + hunk.oldLines + ' +' + hunk.newStart + ',' + hunk.newLines + ' @@'),
+            hunk.lines.map((line, lineIndex) => h('div', {
+              key: 'line-' + lineIndex,
+              style: line.charAt(0) === '+' ? styles.diffAdd : line.charAt(0) === '-' ? styles.diffDel : null,
+            }, line)))))
+        }
+        body = h('div', { style: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 } }, head, diffBody)
+      }
+
+      return h('div', { style: styles.changesDrawer, role: 'dialog', 'aria-label': t('changesTitle'), 'data-changes-drawer': '' },
+        h('div', { style: styles.drawerHeader },
+          h('span', { style: styles.drawerTitle }, t('changesTitle')),
+          h(IconButton, { label: t('cancel'), onClick: onClose }, h(IconClose))),
+        body)
+    }
+
     /** Session-scoped slot body: the official conversation occurrence. */
     function ConversationPane({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, t }) {
       const tr = typeof t === 'function' ? t : key => key
       const [attempt, setAttempt] = useState(0)
+      const paneUi = useContext(PaneUiContext)
       const session = useSession(value => value)
       const conversation = useConversation(value => value)
+      let timeline = null
+      try {
+        const chat = conversation && conversation.views && typeof conversation.views.get === 'function'
+          ? conversation.views.get('chat')
+          : null
+        timeline = chat ? chat.timeline : null
+      } catch (error) {
+        timeline = null
+      }
+      useEffect(() => {
+        if (paneUi && typeof paneUi.reportTimeline === 'function') paneUi.reportTimeline(timeline)
+      }, [paneUi, timeline])
       const activeTargets = conversation && conversation.activeTargets
       const active = (activeTargets && activeTargets.size > 0)
         || (session && !session.blank && !session.awaitingFirstTurn)
@@ -1955,6 +2268,14 @@ const NOOP = () => {}
       } = props
       const m = useMetrics()
       const [hover, setHover] = useState(false)
+      const [changesOpen, setChangesOpen] = useState(false)
+      const timelineRef = useRef(null)
+      const paneUi = useMemo(() => ({
+        changesOpen,
+        reportTimeline: value => { timelineRef.current = value },
+        openChanges: () => setChangesOpen(true),
+        closeChanges: () => setChangesOpen(false),
+      }), [changesOpen])
       const shellRef = useRef(null)
       useEffect(() => {
         animateIn(shellRef.current, [
@@ -1981,9 +2302,11 @@ const NOOP = () => {}
           showActions: hover || active,
           canClose,
           canOpenMain,
+          canOpenChanges: !!pane.sessionId && !duplicate,
           useSessions,
           t,
           onPick: () => onOpenPicker(pane.id),
+          onOpenChanges: () => setChangesOpen(true),
           onToggleMax: () => onToggleMax(pane.id),
           onMinimize: () => onMinimize(pane.id),
           onOpenMain: () => onOpenMain(pane.id),
@@ -1991,7 +2314,8 @@ const NOOP = () => {}
           onDragStart: event => onDragStart(pane.id, event),
           onDragEnd,
         }),
-        h('div', { style: styles.body },
+        h(PaneUiContext.Provider, { value: paneUi },
+          h('div', { style: styles.body },
           duplicate
             ? h('div', { style: styles.center },
               h('span', { style: styles.duplicateNote }, t('duplicatePane')))
@@ -2019,7 +2343,15 @@ const NOOP = () => {}
             creating,
             error: createError,
             onClose: onDismissPicker,
-          }) : null))
+          }) : null,
+          changesOpen
+            ? h(ChangesDrawer, {
+              sessionId: pane.sessionId,
+              timeline: timelineRef.current,
+              t,
+              onClose: () => setChangesOpen(false),
+            })
+            : null)))
     })
 
     /** One browser tab: title follows its first bound session until renamed. */

@@ -743,6 +743,15 @@ checks.push([!!mainViewButton, 'a bound pane offers the open-in-main action'])
 if (mainViewButton) await click(mainViewButton)
 checks.push([openedInMain[0] === 'session-a', 'open in main hands the bound session to the workspace service'])
 
+const changesButton = swapContainer.querySelector('[data-pane-id="p1"] button[aria-label="changes"]')
+checks.push([!!changesButton, 'a bound pane offers the changed-files drawer'])
+if (changesButton) await click(changesButton)
+const drawerNode = swapContainer.querySelector('[data-changes-drawer]')
+checks.push([
+  !!drawerNode && drawerNode.textContent.includes('changesEmpty'),
+  'the changed-files drawer opens inside the tile',
+])
+
 const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
 Object.defineProperty(dropEvent, 'dataTransfer', {
   value: { types: ['text/x-multisession-pane'], getData: () => 'p1' },
