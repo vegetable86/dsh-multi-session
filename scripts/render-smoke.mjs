@@ -262,7 +262,7 @@ const checks = [
   [bundle.id === '@local/dsh-multi-session', 'bundle id'],
   [mainHtml.includes('标题甲') && mainHtml.includes('标题乙'), 'main renders both pane titles'],
   [mainHtml.includes('data-slot="multisession.pane"'), 'each pane renders the owned session slot'],
-  [rowOf(container, 'p1') === rowOf(container, 'p2') && paneBox(container, 'p1').flexGrow === '1', 'two panes share one row with equal weight'],
+  [container.querySelector('[data-pane-id="p1"]').closest('[data-split="row"]') === container.querySelector('[data-pane-id="p2"]').closest('[data-split="row"]') && paneBox(container, 'p1').flexGrow === '1', 'two panes share one row with equal weight'],
   [mainHtml.includes('data-provider="true"'), 'SessionProvider receives a retained reference'],
   [(mainHtml.match(/data-provider="true"/g) || []).length === 2, 'two session providers for two panes'],
   [releasesBeforeCreate === 0, 'references stay retained while mounted'],
@@ -367,9 +367,9 @@ await act(async () => { manyRoot.render(React.createElement(main.comp, mainProps
 const addButton = Array.from(manyContainer.querySelectorAll('button')).find(button => button.textContent.startsWith('+ '))
 checks.push([
   !!paneBox(manyContainer, 'm2') &&
-    rowOf(manyContainer, 'm0') === rowOf(manyContainer, 'm1') &&
-    rowOf(manyContainer, 'm0') !== rowOf(manyContainer, 'm2'),
-  'six panes tile as three rows of two',
+    manyContainer.querySelectorAll('[data-split="col"]').length === 2 &&
+    manyContainer.querySelectorAll('[data-split="row"]').length === 3,
+  'six panes tile as three stacked rows of two',
 ])
 checks.push([!!addButton && !addButton.disabled, 'add button stays enabled past four panes'])
 checks.push([manyContainer.querySelectorAll('[data-pane-id]').length === 6, 'every pane renders without a hard cap'])
@@ -399,14 +399,15 @@ const dragRoot = createRoot(dragContainer)
 await act(async () => { dragRoot.render(React.createElement(main.comp, mainProps)) })
 stubHost(dragContainer)
 const pointer = (type, x, y) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y })
-const rowDivs = () => Array.from(dragContainer.querySelectorAll('[data-multisession-host] div'))
-  .filter(element => element.style.flexDirection === 'row' && element.style.display === 'flex')
-const weight = id => Number(paneBox(dragContainer, id).flexGrow)
+const splitBoxes = () => Array.from(dragContainer.querySelectorAll('[data-split]'))
+splitBoxes().forEach(box => {
+  box.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 800, width: 1200, height: 800, x: 0, y: 0 })
+})
 
-checks.push([rowDivs().length === 2, 'three panes tile as two rows'])
-checks.push([rowDivs()[0].contains(dragContainer.querySelector('[data-pane-id="d1"]')), 'the lone pane owns the first row'])
+checks.push([splitBoxes().length === 2, 'three panes tile as a nested split tree'])
+checks.push([splitBoxes()[0].getAttribute('data-split') === 'col', 'the outer split stacks the lone pane above the pair'])
 
-const horizontal = dragContainer.querySelector('[data-multisession-host] div[style*="row-resize"]')
+const horizontal = dragContainer.querySelector('div[style*="row-resize"]')
 await act(async () => { horizontal.dispatchEvent(pointer('pointerdown', 600, 400)) })
 checks.push([
   dragContainer.querySelector('[data-multisession-host]').style.cursor === 'row-resize',
@@ -414,40 +415,42 @@ checks.push([
 ])
 await act(async () => { emitWindow('pointermove', { clientX: 600, clientY: 500, cancelable: false }) })
 await act(async () => { emitWindow('pointerup', {}) })
-const firstRowWeight = Number(rowDivs()[0].style.flexGrow)
-const secondRowWeight = Number(rowDivs()[1].style.flexGrow)
+const outer = splitBoxes()[0]
 checks.push([
-  firstRowWeight > secondRowWeight && Math.abs(firstRowWeight + secondRowWeight - 2) < 0.01,
-  'dragging the row divider trades height between the two rows',
+  Number(outer.children[0].style.flexGrow) > 0.5,
+  'dragging the stacked divider gives the top pane more height',
 ])
 
-const vertical = dragContainer.querySelector('[data-multisession-host] div[style*="col-resize"]')
+const vertical = dragContainer.querySelector('div[style*="col-resize"]')
 await act(async () => { vertical.dispatchEvent(pointer('pointerdown', 800, 600)) })
 await act(async () => { emitWindow('pointermove', { clientX: 700, clientY: 600, cancelable: false }) })
 await act(async () => { emitWindow('pointerup', {}) })
+const inner = splitBoxes().find(box => box.getAttribute('data-split') === 'row')
 checks.push([
-  weight('d2') < weight('d3') && Math.abs(weight('d2') + weight('d3') - 2) < 0.01,
-  'dragging the column divider trades width inside one row',
+  Number(inner.children[0].style.flexGrow) < Number(inner.children[2].style.flexGrow),
+  'dragging the side-by-side divider trades width inside the row',
 ])
 
 await sleep(260)
 const tiled = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+const storedTree = tiled.tabs[0].tree
 checks.push([
-  tiled.version === 8 && tiled.tabs[0].rowWeights[0] > tiled.tabs[0].rowWeights[1] && tiled.tabs[0].colWeights.d2 < tiled.tabs[0].colWeights.d3,
-  'the split weights are persisted',
+  tiled.version === 9 && storedTree.ratio > 0.5 && storedTree.second.ratio < 0.5,
+  'the split ratios are persisted on the tree',
 ])
 
 const autoButton = Array.from(dragContainer.querySelectorAll('button')).find(button => button.getAttribute('title') === 'autoArrange')
 await act(async () => { autoButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
 checks.push([
-  Number(rowDivs()[0].style.flexGrow) === 1 && weight('d2') === 1 && weight('d3') === 1,
+  Number(splitBoxes()[0].children[0].style.flexGrow) === 0.5,
   'even out restores an even split',
 ])
 await sleep(260)
 const evened = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+const evenTree = evened.tabs[0].tree
 checks.push([
-  evened.tabs[0].rowWeights.every(item => item === 1) && Object.values(evened.tabs[0].colWeights).every(item => item === 1),
-  'even out clears the stored weights',
+  evenTree.ratio === 0.5 && evenTree.second.ratio === 0.5,
+  'even out clears the stored ratios',
 ])
 await act(async () => { dragRoot.unmount() })
 
@@ -510,7 +513,7 @@ checks.push([!!minContainer.querySelector('[data-pane-id="n2"]'), 'the neighbour
 await sleep(260)
 const minimizedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  minimizedStore.version === 8 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
+  minimizedStore.version === 9 && minimizedStore.tabs[0].panes.find(pane => pane.id === 'n1').minimized === true,
   'the collapsed flag is persisted',
 ])
 await click(chip)
@@ -678,7 +681,7 @@ checks.push([
   'a new tab keeps the chosen skin',
 ])
 checks.push([
-  tabStore.version === 8 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
+  tabStore.version === 9 && tabStore.tabs.length === 3 && typeof tabStore.activeTabId === 'string',
   'all tabs are persisted together',
 ])
 
@@ -844,7 +847,7 @@ if (densityButton) await click(densityButton)
 await act(async () => { await sleep(260) })
 const denseStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 checks.push([
-  denseStore.version === 8 && denseStore.density === 'comfortable' &&
+  denseStore.version === 9 && denseStore.density === 'comfortable' &&
     !!polishContainer.querySelector('button[aria-label="densityCompact"]'),
   'density toggles and is stored with the board',
 ])
@@ -868,7 +871,7 @@ await act(async () => { await sleep(260) })
 const themedStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
 const themedRoot = polishContainer.firstElementChild
 checks.push([
-  themedStore.version === 8 && themedStore.theme === 'claude' &&
+  themedStore.version === 9 && themedStore.theme === 'claude' &&
     !!themedRoot && themedRoot.getAttribute('data-theme') === 'claude' &&
     themedRoot.style.getPropertyValue('--ms-accent').trim() === '#D97757' &&
     themedRoot.style.getPropertyValue('--dsw-alias-bg-base').trim() === '#FAF9F5' &&
@@ -897,6 +900,49 @@ if (minimizeButton) {
 }
 checks.push([!!polishContainer.querySelector('[role="tooltip"]'), 'hovering an icon shows a tooltip'])
 await act(async () => { polishRoot.unmount() })
+
+// Right-click a pane header to split it: the fresh half starts empty and opens its picker.
+dom.window.localStorage.setItem('dsh.multi-session.v1', JSON.stringify({
+  version: 9,
+  activeTabId: 'tab-split',
+  immersive: false,
+  density: 'compact',
+  theme: 'harness',
+  tabs: [{
+    id: 'tab-split',
+    title: '',
+    panes: [{ id: 'sp1', sessionId: 'session-a' }],
+    tree: { kind: 'leaf', paneId: 'sp1' },
+    maximizedId: null,
+  }],
+}))
+const splitContainer = document.createElement('div')
+document.body.appendChild(splitContainer)
+const splitRoot = createRoot(splitContainer)
+await act(async () => { splitRoot.render(React.createElement(main.comp, mainProps)) })
+const splitHeader = splitContainer.querySelector('[data-pane-id="sp1"] div[draggable="true"]')
+await act(async () => {
+  splitHeader.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 2, clientX: 140, clientY: 90 }))
+})
+
+checks.push([!!splitContainer.querySelector('[data-pane-menu]'), 'right-clicking a pane header opens its menu'])
+const splitDownItem = Array.from(splitContainer.querySelectorAll('[data-pane-menu] button'))
+  .find(button => button.textContent === 'splitDown')
+if (splitDownItem) await click(splitDownItem)
+checks.push([
+  splitContainer.querySelectorAll('[data-pane-id]').length === 2 &&
+    !!splitContainer.querySelector('[data-split="col"]'),
+  'split down adds an empty pane under the current one',
+])
+await act(async () => { await sleep(260) })
+const splitStore = JSON.parse(dom.window.localStorage.getItem('dsh.multi-session.v1'))
+checks.push([
+  splitStore.tabs[0].tree.kind === 'split' && splitStore.tabs[0].tree.axis === 'col' &&
+    splitStore.tabs[0].panes.length === 2 &&
+    splitStore.tabs[0].panes.filter(pane => pane.sessionId === null).length === 1,
+  'the split is stored as a tree and the new half is empty',
+])
+await act(async () => { splitRoot.unmount() })
 
 let failed = false
 for (const [ok, label] of checks) {

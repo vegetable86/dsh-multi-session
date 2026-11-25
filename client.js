@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     /** Client locale namespace. */
     const NS = 'multisession'
     /** Shown in the toolbar so a stale client bundle is obvious at a glance. */
-    const VERSION = '0.21.0'
+    const VERSION = '0.22.0'
     /** Main-panel key; must equal the sidebar icon id so the entry appears. */
     const PANEL_ID = 'multisession'
     /** Session-scoped child slot owned by this panel, one occurrence per pane. */
@@ -90,6 +90,9 @@ const NOOP = () => {}
       minimizedBar: '已收起',
       allMinimized: '所有格子都收起了，点上面的标题展开',
       closePane: '关闭这一格',
+      splitRight: '向右分屏',
+      splitDown: '向下分屏',
+      paneMenu: '格子操作',
       running: '运行中',
       idle: '空闲',
       unavailableTitle: '会话不可用',
@@ -124,6 +127,7 @@ const NOOP = () => {}
       tabTitlePlaceholder: '标签名称',
       openInMain: '在主面板打开',
       movePane: '拖动标题栏到另一个格子可交换两者的会话',
+      splitHint: '新分出的格子是空的，可以从选择器里挑会话',
       changes: '改动',
       changesTitle: '本会话改动的文件',
       changesEmpty: '这个会话还没有记录到文件改动',
@@ -144,7 +148,7 @@ const NOOP = () => {}
       densityCompact: '紧凑密度',
       densityComfortable: '舒适密度',
       densityHint: '切换格子的间距与按钮尺寸',
-      hintText: '拖分隔条调大小 · 拖标题栏交换会话 · 拖标签可排序 · 标题栏的箭头在主面板打开',
+      hintText: '拖分隔条调大小 · 右键格子标题栏可分屏 · 拖标题栏交换会话 · 拖标签可排序 · 标题栏的箭头在主面板打开',
       hintDismiss: '知道了',
       tabDormant: '切回这个标签后重新连接',
       duplicatePane: '这个会话已在另一格显示',
@@ -180,6 +184,9 @@ const NOOP = () => {}
       minimizedBar: 'Collapsed',
       allMinimized: 'All panes are collapsed — pick a title above to expand it',
       closePane: 'Close pane',
+      splitRight: 'Split right',
+      splitDown: 'Split down',
+      paneMenu: 'Pane actions',
       running: 'Running',
       idle: 'Idle',
       unavailableTitle: 'Session unavailable',
@@ -214,6 +221,7 @@ const NOOP = () => {}
       tabTitlePlaceholder: 'Tab name',
       openInMain: 'Open in main view',
       movePane: 'Drag the title bar onto another tile to swap their sessions',
+      splitHint: 'The new half starts empty — pick a session from its selector',
       changes: 'Changes',
       changesTitle: 'Files changed in this session',
       changesEmpty: 'No file changes recorded for this session yet',
@@ -234,7 +242,7 @@ const NOOP = () => {}
       densityCompact: 'Compact density',
       densityComfortable: 'Comfortable density',
       densityHint: 'Switch the spacing and the size of the pane buttons',
-      hintText: 'Drag a divider to resize · drag a title bar to swap sessions · drag a tab to reorder · the arrow opens the pane in the main view',
+      hintText: 'Drag a divider to resize · right-click a title bar to split · drag a title bar to swap sessions · drag a tab to reorder · the arrow opens the pane in the main view',
       hintDismiss: 'Got it',
       tabDormant: 'Switch back to this tab to reconnect',
       duplicatePane: 'This session is already open in another pane',
@@ -749,6 +757,32 @@ const NOOP = () => {}
         border: '1px solid var(--ms-border)',
         background: 'var(--ms-surface)',
         boxShadow: '0 16px 40px rgba(0, 0, 0, 0.32)',
+      },
+      paneMenu: {
+        position: 'fixed',
+        zIndex: 300,
+        minWidth: 176,
+        padding: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        borderRadius: 8,
+        border: '1px solid var(--ms-border)',
+        background: 'var(--ms-surface)',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.32)',
+      },
+      paneMenuItem: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 9px',
+        border: 'none',
+        borderRadius: 6,
+        background: 'transparent',
+        color: 'var(--ms-text)',
+        fontSize: 12.5,
+        textAlign: 'left',
+        cursor: 'pointer',
       },
       themeOption: {
         display: 'flex',
@@ -1335,16 +1369,153 @@ const NOOP = () => {}
       return typeof value === 'number' && isFinite(value) && value > 0 ? value : fallback
     }
 
+    /* ------------------------------------------------------------ split tree
+       A tab is a binary tree: leaves are panes, splits remember their direction
+       and how much of the box the first child takes. `row` puts the children
+       side by side (a vertical divider, tmux `%`), `col` stacks them (a
+       horizontal divider, tmux `"`). */
+
+    function leafNode(paneId) {
+      return { kind: 'leaf', paneId }
+    }
+
+    function splitNode(axis, first, second, ratio) {
+      const safe = typeof ratio === 'number' && isFinite(ratio) && ratio > 0.05 && ratio < 0.95 ? ratio : 0.5
+      return { kind: 'split', axis: axis === 'col' ? 'col' : 'row', ratio: safe, first, second }
+    }
+
+    /** Default tree: one leaf, two side by side, three as A | (B/C), four as 2×2. */
+    function defaultTree(ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return null
+      if (ids.length === 1) return leafNode(ids[0])
+      if (ids.length === 2) return splitNode('row', leafNode(ids[0]), leafNode(ids[1]), 0.5)
+      if (ids.length === 3) {
+        return splitNode('col', leafNode(ids[0]), splitNode('row', leafNode(ids[1]), leafNode(ids[2]), 0.5), 0.5)
+      }
+      let tree = null
+      let weight = 0
+      for (const row of defaultRows(ids)) {
+        let rowNode = leafNode(row[0])
+        let rowWeight = 1
+        for (let index = 1; index < row.length; index += 1) {
+          rowNode = splitNode('row', rowNode, leafNode(row[index]), rowWeight / (rowWeight + 1))
+          rowWeight += 1
+        }
+        tree = tree === null ? rowNode : splitNode('col', tree, rowNode, weight / (weight + 1))
+        weight += 1
+      }
+      return tree
+    }
+
+    /** Upgrade a v8 row/weight layout into the same shape expressed as a tree. */
+    function treeFromRows(rows, rowWeights, colWeights) {
+      const rowNodes = rows.map((row, index) => {
+        let node = leafNode(row[0])
+        let weight = positive(colWeights[row[0]], 1)
+        for (let column = 1; column < row.length; column += 1) {
+          const next = positive(colWeights[row[column]], 1)
+          node = splitNode('row', node, leafNode(row[column]), weight / (weight + next))
+          weight += next
+        }
+        return { node, weight: positive(rowWeights[index], 1) }
+      })
+      if (rowNodes.length === 0) return null
+      let tree = rowNodes[0].node
+      let weight = rowNodes[0].weight
+      for (let index = 1; index < rowNodes.length; index += 1) {
+        tree = splitNode('col', tree, rowNodes[index].node, weight / (weight + rowNodes[index].weight))
+        weight += rowNodes[index].weight
+      }
+      return tree
+    }
+
+    /** Keep only leaves whose panes still exist, and rebuild a sane tree. */
+    function sanitizeTree(raw, valid, used) {
+      if (!raw || typeof raw !== 'object') return null
+      if (raw.kind === 'leaf') {
+        if (typeof raw.paneId !== 'string' || !valid.has(raw.paneId) || used.has(raw.paneId)) return null
+        used.add(raw.paneId)
+        return leafNode(raw.paneId)
+      }
+      if (raw.kind !== 'split') return null
+      const first = sanitizeTree(raw.first, valid, used)
+      const second = sanitizeTree(raw.second, valid, used)
+      if (!first) return second
+      if (!second) return first
+      return splitNode(raw.axis, first, second, raw.ratio)
+    }
+
+    function treeLeaves(node, out) {
+      if (!node) return out
+      if (node.kind === 'leaf') {
+        out.push(node.paneId)
+        return out
+      }
+      treeLeaves(node.first, out)
+      treeLeaves(node.second, out)
+      return out
+    }
+
+    /** Replace one leaf with a split that holds it plus a fresh pane. */
+    function treeSplitAt(node, paneId, axis, newPaneId) {
+      if (!node) return null
+      if (node.kind === 'leaf') {
+        return node.paneId === paneId ? splitNode(axis, leafNode(paneId), leafNode(newPaneId), 0.5) : node
+      }
+      return Object.assign({}, node, {
+        first: treeSplitAt(node.first, paneId, axis, newPaneId),
+        second: treeSplitAt(node.second, paneId, axis, newPaneId),
+      })
+    }
+
+    /** Drop a leaf; its sibling takes over the parent split's space. */
+    function treeRemove(node, paneId) {
+      if (!node) return null
+      if (node.kind === 'leaf') return node.paneId === paneId ? null : node
+      const first = treeRemove(node.first, paneId)
+      const second = treeRemove(node.second, paneId)
+      if (!first) return second
+      if (!second) return first
+      return Object.assign({}, node, { first, second })
+    }
+
+    /** Write a ratio at `path` (0 = first child, 1 = second). */
+    function treeSetRatio(node, path, ratio) {
+      if (!node || node.kind !== 'split') return node
+      if (path.length === 0) return Object.assign({}, node, { ratio })
+      const head = path[0]
+      return Object.assign({}, node, head === 0
+        ? { first: treeSetRatio(node.first, path.slice(1), ratio) }
+        : { second: treeSetRatio(node.second, path.slice(1), ratio) })
+    }
+
+    /** Every divider back to an even split. */
+    function treeEven(node) {
+      if (!node || node.kind !== 'split') return node
+      return Object.assign({}, node, { ratio: 0.5, first: treeEven(node.first), second: treeEven(node.second) })
+    }
+
+    /** How many visible leaves a subtree holds; collapsed panes count as gone. */
+    function treeVisibleCount(node, collapsed) {
+      if (!node) return 0
+      if (node.kind === 'leaf') return collapsed.has(node.paneId) ? 0 : 1
+      return treeVisibleCount(node.first, collapsed) + treeVisibleCount(node.second, collapsed)
+    }
+
+    /** How much of the box the first child takes at a split path. */
+    function treeRatioAt(node, path) {
+      let current = node
+      for (const step of path) {
+        if (!current || current.kind !== 'split') return 0.5
+        current = step === 0 ? current.first : current.second
+      }
+      return current && current.kind === 'split' ? current.ratio : 0.5
+    }
+
     function makeLayout(panes, maximizedId) {
-      const ids = panes.map(pane => pane.id)
-      const rows = defaultRows(ids)
-      const colWeights = {}
-      for (const id of ids) colWeights[id] = 1
       return {
         panes,
-        rows,
-        rowWeights: rows.map(() => 1),
-        colWeights,
+        tree: defaultTree(panes.map(pane => pane.id)),
         maximizedId: maximizedId || null,
       }
     }
@@ -1399,20 +1570,31 @@ const NOOP = () => {}
       }
       if (panes.length === 0) return null
       const order = panes.map(pane => pane.id)
-      const rows = normalizeRows(value.rows, order)
-      const storedRowWeights = Array.isArray(value.rowWeights) ? value.rowWeights : []
-      const rowWeights = rows.map((row, index) => positive(storedRowWeights[index], 1))
-      const storedColWeights = value.colWeights && typeof value.colWeights === 'object' ? value.colWeights : {}
-      const colWeights = {}
-      for (const id of order) colWeights[id] = positive(storedColWeights[id], 1)
+      const valid = new Set(order)
+      const used = new Set()
+      let tree = null
+      if (value.tree && typeof value.tree === 'object') {
+        tree = sanitizeTree(value.tree, valid, used)
+      } else {
+        /* v8 and older stored rows + weights; translate them into the same shape. */
+        const legacyRows = normalizeRows(value.rows, order)
+        const storedRowWeights = Array.isArray(value.rowWeights) ? value.rowWeights : []
+        const storedColWeights = value.colWeights && typeof value.colWeights === 'object' ? value.colWeights : {}
+        tree = treeFromRows(legacyRows, storedRowWeights, storedColWeights)
+        for (const id of treeLeaves(tree, [])) used.add(id)
+      }
+      /* A pane missing from the tree (storage edited by hand) gets a slot, so it
+         stays reachable instead of silently disappearing. */
+      for (const id of order) {
+        if (used.has(id)) continue
+        tree = tree ? splitNode('row', tree, leafNode(id), 0.5) : leafNode(id)
+      }
       const maximizedId = typeof value.maximizedId === 'string' && seen.has(value.maximizedId)
         ? value.maximizedId
         : null
       return {
         panes,
-        rows,
-        rowWeights,
-        colWeights,
+        tree,
         /* A collapsed pane cannot stay maximised: it has no cell to cover. */
         maximizedId: maximizedId && !panes.some(pane => pane.id === maximizedId && pane.minimized) ? maximizedId : null,
       }
@@ -1451,7 +1633,7 @@ const NOOP = () => {}
           theme: THEMES[value.theme] ? value.theme : DEFAULT_THEME,
         }
       }
-      if (typeof value.version !== 'number' || value.version < 1 || value.version > 6) return null
+      if (typeof value.version !== 'number' || value.version < 1 || value.version > 9) return null
       const tab = normalizeTab(value)
       if (!tab) return null
       return {
@@ -1476,7 +1658,7 @@ const NOOP = () => {}
     function saveBoard(board) {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 8,
+          version: 9,
           activeTabId: board.activeTabId,
           immersive: board.immersive === true,
           density: board.density === 'comfortable' ? 'comfortable' : 'compact',
@@ -1485,9 +1667,7 @@ const NOOP = () => {}
             id: tab.id,
             title: tab.title,
             panes: tab.panes,
-            rows: tab.rows,
-            rowWeights: tab.rowWeights,
-            colWeights: tab.colWeights,
+            tree: tab.tree,
             maximizedId: tab.maximizedId,
           })),
         }))
@@ -1496,19 +1676,11 @@ const NOOP = () => {}
       }
     }
 
-    /**
-     * The rows that actually render: collapsed panes keep their slot in `rows`
-     * (so expanding restores the position) but do not take grid space.
-     */
-    function visibleGrid(layout) {
-      const byId = {}
-      for (const pane of layout.panes) byId[pane.id] = pane
-      const grid = []
-      layout.rows.forEach((row, index) => {
-        const ids = row.filter(id => byId[id] && !byId[id].minimized)
-        if (ids.length > 0) grid.push({ index, ids })
-      })
-      return grid
+    /** Ids of panes that occupy space right now (collapsed panes excluded). */
+    function visiblePaneIds(layout) {
+      const collapsed = new Set()
+      for (const pane of layout.panes) if (pane.minimized) collapsed.add(pane.id)
+      return treeLeaves(layout.tree, []).filter(id => !collapsed.has(id))
     }
 
     function pickableSessions(snapshot) {
@@ -1624,6 +1796,105 @@ const NOOP = () => {}
           ? { background: 'var(--dsw-alias-state-success-primary)', opacity: 1 }
           : null),
       }))
+    }
+
+    /**
+     * One split of the tile tree: two children either side by side or stacked.
+     * The ratio lives on the node; a drag previews locally and commits once on
+     * release, so the stored tree is written once per gesture.
+     */
+    function SplitBox({ node, path, renderLeaf, collapsed, onRatio, onDragStart, onDragEnd, t }) {
+      const m = useMetrics()
+      const ref = useRef(null)
+      const [preview, setPreview] = useState(null)
+      const dragValue = useRef(null)
+      const axis = node.axis
+      const ratio = preview === null ? node.ratio : preview
+      const firstCount = treeVisibleCount(node.first, collapsed)
+      const secondCount = treeVisibleCount(node.second, collapsed)
+      const both = firstCount > 0 && secondCount > 0
+
+      const start = event => {
+        if (event.button !== undefined && event.button !== 0) return
+        const box = ref.current && ref.current.getBoundingClientRect()
+        if (!box) return
+        const size = axis === 'row' ? box.width : box.height
+        if (!(size > 0)) return
+        const startRatio = node.ratio
+        const floor = Math.min((axis === 'row' ? m.minW : m.minH) / size, 0.45)
+        const origin = axis === 'row' ? event.clientX : event.clientY
+        let moved = false
+        dragValue.current = null
+        onDragStart(axis)
+        const move = moveEvent => {
+          const delta = (axis === 'row' ? moveEvent.clientX : moveEvent.clientY) - origin
+          if (!moved && Math.abs(delta) < 2) return
+          moved = true
+          const next = clamp(startRatio + delta / size, floor, 1 - floor)
+          dragValue.current = next
+          setPreview(next)
+          if (moveEvent.cancelable) moveEvent.preventDefault()
+        }
+        const finish = () => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', finish)
+          window.removeEventListener('pointercancel', finish)
+          setPreview(null)
+          onDragEnd()
+          if (moved && dragValue.current !== null) onRatio(path, dragValue.current)
+          dragValue.current = null
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', finish)
+        window.addEventListener('pointercancel', finish)
+        if (event.cancelable) event.preventDefault()
+      }
+
+      const cellStyle = grow => ({
+        display: 'flex',
+        flexDirection: 'column',
+        minWidth: 0,
+        minHeight: 0,
+        flexGrow: both ? grow : 1,
+        flexBasis: 0,
+        transition: preview === null ? 'flex-grow 140ms ease' : 'none',
+      })
+
+      return h('div', {
+        ref,
+        'data-split': axis,
+        style: {
+          display: 'flex',
+          flexDirection: axis === 'row' ? 'row' : 'column',
+          flex: '1 1 auto',
+          minWidth: 0,
+          minHeight: 0,
+        },
+      },
+      firstCount > 0
+        ? h('div', { key: 'first', style: cellStyle(ratio) },
+          h(TreeView, { node: node.first, path: path.concat([0]), renderLeaf, collapsed, onRatio, onDragStart, onDragEnd, t }))
+        : null,
+      both
+        ? h(Splitter, {
+          key: 'divider',
+          axis: axis === 'row' ? 'col' : 'row',
+          title: t('dragHint'),
+          onPointerDown: start,
+        })
+        : null,
+      secondCount > 0
+        ? h('div', { key: 'second', style: cellStyle(1 - ratio) },
+          h(TreeView, { node: node.second, path: path.concat([1]), renderLeaf, collapsed, onRatio, onDragStart, onDragEnd, t }))
+        : null)
+    }
+
+    /** Render a node of the tile tree: leaves become panes, splits recurse. */
+    function TreeView(props) {
+      const node = props.node
+      if (!node) return null
+      if (node.kind === 'leaf') return props.renderLeaf(node.paneId)
+      return h(SplitBox, props)
     }
 
     function EmptyState({ t, onPick, onCreate, creating, error }) {
@@ -1820,7 +2091,7 @@ const NOOP = () => {}
 
     /* ----------------------------------------------------------- pane parts */
 
-    function PaneHeader({ pane, maximized, active, showActions, canClose, canOpenMain, canOpenChanges, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onOpenChanges, onClose, onDragStart, onDragEnd }) {
+    function PaneHeader({ pane, maximized, active, showActions, canClose, canOpenMain, canOpenChanges, useSessions, t, onPick, onToggleMax, onMinimize, onOpenMain, onOpenChanges, onClose, onDragStart, onDragEnd, onMenu }) {
       const m = useMetrics()
       const row = useSessions(state => (pane.sessionId ? state.byId[pane.sessionId] : undefined))
       const title = row && row.displayTitle
@@ -1841,6 +2112,12 @@ const NOOP = () => {}
         title: t('movePane'),
         onDragStart,
         onDragEnd,
+        onContextMenu: onMenu,
+        onPointerDown: event => {
+          /* Right-click reaches us as pointerdown first; opening here keeps the
+             menu responsive even when a native context menu is suppressed. */
+          if (event.button === 2 && typeof onMenu === 'function') onMenu(event)
+        },
       },
         h('span', { style: styles.gripper, 'aria-hidden': 'true' }, h(IconGrip)),
         h('span', {
@@ -2390,7 +2667,7 @@ const NOOP = () => {}
       const {
         pane, maximized, active, showActions, canClose, canOpenMain, picking, duplicate, sessions, SessionProvider, renderSlot, useSessions, remote, t,
         creating, createError, onOpenPicker, onToggleMax, onMinimize, onOpenMain, onClose, onAssign, onClear, onCreate, onDismissPicker,
-        onDragStart, onDragEnd,
+        onDragStart, onDragEnd, onOpenMenu,
       } = props
       const m = useMetrics()
       const [hover, setHover] = useState(false)
@@ -2480,6 +2757,12 @@ const NOOP = () => {}
           onClose: () => onClose(pane.id),
           onDragStart: event => onDragStart(pane.id, event),
           onDragEnd,
+          onMenu: event => {
+            if (!event || typeof onOpenMenu !== 'function') return
+            event.preventDefault()
+            event.stopPropagation()
+            onOpenMenu(pane.id, event.clientX, event.clientY)
+          },
         }),
         h(PaneUiContext.Provider, { value: paneUi },
           h('div', { style: styles.body, ref: bodyRef },
@@ -2706,6 +2989,7 @@ const NOOP = () => {}
       const { SessionProvider, renderSlot, useSessions, useWorkspaces, sessions, uiWorkspace, remote, t } = props
       const [board, setBoard] = useState(loadBoard)
       const [pickingId, setPickingId] = useState(null)
+      const [paneMenu, setPaneMenu] = useState(null)
       const [creatingPane, setCreatingPane] = useState(null)
       const [workspaceFor, setWorkspaceFor] = useState(null)
       const [createFailure, setCreateFailure] = useState(null)
@@ -2833,9 +3117,6 @@ const NOOP = () => {}
       }, [board])
 
       const maximizedId = layout ? layout.maximizedId : null
-      /* Drag previews live in `draft` so the committed layout only changes on release. */
-      const rowWeights = layout ? (draft ? draft.rowWeights : layout.rowWeights) : []
-      const colWeights = layout ? (draft ? draft.colWeights : layout.colWeights) : {}
       useEffect(() => {
         if (!maximizedId && !immersive) return
         const onKeyDown = event => {
@@ -2968,55 +3249,63 @@ const NOOP = () => {}
           : previous))
       }, [])
 
-      const addPane = useCallback(() => {
+      /** Split one pane in half; the fresh half starts empty and opens its picker. */
+      const splitPane = useCallback((paneId, axis) => {
         const id = nextPaneId()
         setLayout(previous => {
           if (!previous) return previous
-          const rows = previous.rows.map(row => row.slice())
-          const weights = previous.rowWeights.slice()
-          const last = rows.length - 1
-          if (last >= 0 && rows[last].length < 2) {
-            rows[last].push(id)
-          } else {
-            rows.push([id])
-            weights.push(1)
-          }
+          if (previous.panes.length >= STORED_PANE_LIMIT) return previous
+          const target = previous.panes.find(pane => pane.id === paneId)
+          if (!target) return previous
           return Object.assign({}, previous, {
             panes: previous.panes.concat([{ id, sessionId: null }]),
-            rows,
-            rowWeights: weights,
-            colWeights: Object.assign({}, previous.colWeights, { [id]: 1 }),
+            tree: treeSplitAt(previous.tree, paneId, axis, id),
             maximizedId: null,
           })
         })
+        setActivePaneId(id)
         setPickingId(id)
       }, [])
+
+      const addPane = useCallback(() => {
+        const target = activePaneId || (layout && layout.panes.length ? layout.panes[layout.panes.length - 1].id : null)
+        if (target) splitPane(target, 'row')
+      }, [activePaneId, layout, splitPane])
 
       const closePane = useCallback(id => {
         setLayout(previous => {
           if (!previous || previous.panes.length <= 1) return previous
-          const rows = []
-          const weights = []
-          previous.rows.forEach((row, index) => {
-            const kept = row.filter(item => item !== id)
-            if (kept.length > 0) {
-              rows.push(kept)
-              weights.push(previous.rowWeights[index] || 1)
-            }
-          })
-          const colWeights = Object.assign({}, previous.colWeights)
-          delete colWeights[id]
           return Object.assign({}, previous, {
             panes: previous.panes.filter(pane => pane.id !== id),
-            rows,
-            rowWeights: weights,
-            colWeights,
+            tree: treeRemove(previous.tree, id),
             maximizedId: previous.maximizedId === id ? null : previous.maximizedId,
           })
         })
         setPickingId(current => (current === id ? null : current))
         setWorkspaceFor(current => (current === id ? null : current))
       }, [])
+
+      const openPaneMenu = useCallback((paneId, x, y) => {
+        setPaneMenu({ paneId, x: Math.max(8, Math.round(x)), y: Math.max(8, Math.round(y)) })
+      }, [])
+      const closePaneMenu = useCallback(() => setPaneMenu(null), [])
+      useEffect(() => {
+        if (!paneMenu) return undefined
+        const dismiss = event => {
+          const target = event && event.target
+          if (target && typeof target.closest === 'function' && target.closest('[data-pane-menu]')) return
+          setPaneMenu(null)
+        }
+        const onKey = event => {
+          if (event.key === 'Escape') setPaneMenu(null)
+        }
+        window.addEventListener('click', dismiss)
+        window.addEventListener('keydown', onKey)
+        return () => {
+          window.removeEventListener('click', dismiss)
+          window.removeEventListener('keydown', onKey)
+        }
+      }, [paneMenu])
 
       const toggleMaximize = useCallback(id => {
         setLayout(previous => {
@@ -3073,109 +3362,13 @@ const NOOP = () => {}
        * divider resizes both rows (and therefore every pane in them); a column
        * divider only resizes the two neighbours inside one row.
        */
-      const beginSplitDrag = useCallback((event, axis, index) => {
-        if (!layout || layout.maximizedId) return
-        if (dragRef.current) return
-        if (event.button !== undefined && event.button !== 0) return
-        const host = hostRef.current
-        if (!host || typeof host.getBoundingClientRect !== 'function') return
-        const box = host.getBoundingClientRect()
-        if (!box || !(box.width > 0) || !(box.height > 0)) return
 
-        const baseRows = (draft ? draft.rowWeights : layout.rowWeights).slice()
-        const baseCols = Object.assign({}, draft ? draft.colWeights : layout.colWeights)
-        let startA = 0
-        let startB = 0
-        let pixelsPerWeight = 0
-        let minPixels = 0
-        let pairKey = null
-        let rowPair = null
-        const grid = visibleGrid(layout)
-
-        if (axis === 'row') {
-          const position = grid.findIndex(entry => entry.index === index)
-          if (position < 0 || position + 1 >= grid.length) return
-          rowPair = [grid[position].index, grid[position + 1].index]
-          startA = baseRows[rowPair[0]] || 1
-          startB = baseRows[rowPair[1]] || 1
-          const sum = baseRows.reduce((total, weight) => total + (weight > 0 ? weight : 1), 0)
-          const available = Math.max(0, box.height - metrics.pad * 2 - metrics.splitter * Math.max(0, grid.length - 1))
-          pixelsPerWeight = sum > 0 ? available / sum : 0
-          minPixels = metrics.minH
-        } else {
-          const entry = grid.find(item => item.index === index)
-          if (!entry || entry.ids.length < 2) return
-          pairKey = [entry.ids[0], entry.ids[1]]
-          startA = baseCols[pairKey[0]] || 1
-          startB = baseCols[pairKey[1]] || 1
-          const available = Math.max(0, box.width - metrics.pad * 2 - metrics.splitter)
-          pixelsPerWeight = startA + startB > 0 ? available / (startA + startB) : 0
-          minPixels = metrics.minW
-        }
-        if (!(pixelsPerWeight > 0)) return
-
-        const pair = startA + startB
-        const floor = Math.min(minPixels / pixelsPerWeight, pair / 2)
-        const startX = event.clientX
-        const startY = event.clientY
-        let moved = false
-        let nextRowWeights = baseRows
-        let nextColWeights = baseCols
-        dragRef.current = { axis, index }
-        setSplitAxis(axis)
-
-        const onMove = moveEvent => {
-          if (!dragRef.current) return
-          const deltaPixels = axis === 'row' ? moveEvent.clientY - startY : moveEvent.clientX - startX
-          if (!moved && Math.abs(deltaPixels) < 2) return
-          moved = true
-          const a = clamp(startA + deltaPixels / pixelsPerWeight, floor, pair - floor)
-          const b = pair - a
-          if (axis === 'row') {
-            nextRowWeights = baseRows.slice()
-            nextRowWeights[rowPair[0]] = a
-            nextRowWeights[rowPair[1]] = b
-            setDraft({ rowWeights: nextRowWeights, colWeights: baseCols })
-          } else {
-            nextColWeights = Object.assign({}, baseCols)
-            nextColWeights[pairKey[0]] = a
-            nextColWeights[pairKey[1]] = b
-            setDraft({ rowWeights: baseRows, colWeights: nextColWeights })
-          }
-          if (moveEvent.cancelable) moveEvent.preventDefault()
-        }
-
-        const finish = () => {
-          window.removeEventListener('pointermove', onMove)
-          window.removeEventListener('pointerup', finish)
-          window.removeEventListener('pointercancel', finish)
-          dragRef.current = null
-          setSplitAxis(null)
-          setDraft(null)
-          if (!moved) return
-          setLayout(previous => (previous
-            ? Object.assign({}, previous, { rowWeights: nextRowWeights, colWeights: nextColWeights })
-            : previous))
-        }
-
-        window.addEventListener('pointermove', onMove)
-        window.addEventListener('pointerup', finish)
-        window.addEventListener('pointercancel', finish)
-        if (event.cancelable) event.preventDefault()
-      }, [draft, layout, metrics])
 
       /** Put every divider back to an even split. */
       const autoArrange = useCallback(() => {
-        setLayout(previous => {
-          if (!previous) return previous
-          const colWeights = {}
-          for (const pane of previous.panes) colWeights[pane.id] = 1
-          return Object.assign({}, previous, {
-            maximizedId: null,
-            rowWeights: previous.rows.map(() => 1),
-            colWeights,
-          })
-        })
+        setLayout(previous => (previous
+          ? Object.assign({}, previous, { maximizedId: null, tree: treeEven(previous.tree) })
+          : previous))
       }, [])
 
       /** Create a fresh session for one pane and bind it there. */
@@ -3351,9 +3544,8 @@ const NOOP = () => {}
                    conversation (scroll position, stream) survives the toggle. */
                 ? { position: 'absolute', top: metrics.pad, left: metrics.pad, right: metrics.pad, bottom: metrics.pad, zIndex: 20, visibility: 'visible', boxShadow: '0 18px 48px rgba(0,0,0,.28)' }
                 : {
-                  flexGrow: colWeights[pane.id] || 1,
+                  flexGrow: 1,
                   flexBasis: 0,
-                  transition: 'flex-grow 280ms cubic-bezier(.2,.8,.2,1)',
                 },
             ),
           }, h(PaneShell, {
@@ -3383,42 +3575,32 @@ const NOOP = () => {}
             onDismissPicker: dismissPicker,
             onDragStart: startPaneDrag,
             onDragEnd: endPaneDrag,
+            onOpenMenu: openPaneMenu,
           }))
         }
 
         const minimizedPanes = panes.filter(pane => pane.minimized)
 
-        /* Tiles never overlap: rows split the height, the panes of a row split its width. */
-        const view = []
-        const grid = visibleGrid(layout)
-        grid.forEach((entry, position) => {
-          const cells = []
-          entry.ids.forEach((id, colIndex) => {
-            const pane = byId[id]
-            if (!pane) return
-            if (colIndex > 0) {
-              cells.push(h(Splitter, {
-                key: 'divider-v-' + id,
-                axis: 'col',
-                title: t('dragHint'),
-                onPointerDown: event => beginSplitDrag(event, 'col', entry.index),
-              }))
-            }
-            cells.push(renderCell(pane))
-          })
-          view.push(h('div', {
-            key: 'row-' + entry.index,
-            style: Object.assign({}, styles.tileRow, { flexGrow: rowWeights[entry.index] || 1, transition: 'flex-grow 280ms cubic-bezier(.2,.8,.2,1)' }),
-          }, cells))
-          if (position < grid.length - 1) {
-            view.push(h(Splitter, {
-              key: 'divider-h-' + entry.index,
-              axis: 'row',
-              title: t('dragHint'),
-              onPointerDown: event => beginSplitDrag(event, 'row', entry.index),
-            }))
-          }
-        })
+        /* The tree owns the geometry: every split divides its own box, so a
+           nested split only shrinks the pane it belongs to. */
+        const collapsed = new Set(minimizedPanes.map(pane => pane.id))
+        const visibleCount = treeVisibleCount(layout.tree, collapsed)
+        const view = visibleCount === 0
+          ? [h('div', { key: 'all-collapsed', style: styles.center },
+            h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))]
+          : [h(TreeView, {
+            key: 'tree',
+            node: layout.tree,
+            path: [],
+            renderLeaf: id => (byId[id] ? renderCell(byId[id]) : null),
+            collapsed,
+            onRatio: (path, ratio) => setLayout(previous => (previous
+              ? Object.assign({}, previous, { tree: treeSetRatio(previous.tree, path, ratio) })
+              : previous)),
+            onDragStart: axis => setSplitAxis(axis),
+            onDragEnd: () => setSplitAxis(null),
+            t,
+          })]
 
         const noopHandler = NOOP
 
@@ -3426,42 +3608,48 @@ const NOOP = () => {}
            keeps scroll position, composer drafts and streaming output. They are
            rendered without handlers and never receive pointer events. */
         const renderDormantBoard = tab => {
-          const rows = visibleGrid(tab)
-          if (rows.length === 0) {
+          const collapsed = new Set(tab.panes.filter(pane => pane.minimized).map(pane => pane.id))
+          if (treeVisibleCount(tab.tree, collapsed) === 0) {
             return h('div', { style: styles.center },
               h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
           }
-          const cells = []
-          rows.forEach(entry => {
-            const rowCells = []
-            entry.ids.forEach(id => {
-              const pane = tab.panes.find(item => item.id === id)
-              if (!pane) return
-              rowCells.push(h('div', {
-                key: id,
-                'data-pane-id': id,
-                style: {
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flexGrow: tab.colWeights[id] || 1,
-                  flexBasis: 0,
-                  minWidth: 0,
-                  minHeight: 0,
-                },
-              }, h('div', { style: styles.pane },
-                h('div', { style: styles.paneHeader },
-                  h('span', { style: styles.titleText }, pane.sessionId ? String(pane.sessionId).slice(0, 8) : t('noSession'))),
-                h('div', { style: styles.center },
-                  h('span', { style: styles.duplicateNote }, t('tabDormant'))))))
-            })
-            cells.push(h('div', {
-              key: 'row-' + entry.index,
-              style: Object.assign({}, styles.tileRow, { flexGrow: tab.rowWeights[entry.index] || 1 }),
-            }, rowCells))
-          })
-          return h('div', {
-            style: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 },
-          }, cells)
+          const leaf = id => {
+            const pane = tab.panes.find(item => item.id === id)
+            if (!pane) return null
+            return h('div', {
+              key: id,
+              'data-pane-id': id,
+              style: { display: 'flex', flexDirection: 'column', flexGrow: 1, flexBasis: 0, minWidth: 0, minHeight: 0 },
+            }, h('div', { style: styles.pane },
+              h('div', { style: styles.paneHeader },
+                h('span', { style: styles.titleText }, pane.sessionId ? String(pane.sessionId).slice(0, 8) : t('noSession'))),
+              h('div', { style: styles.center },
+                h('span', { style: styles.duplicateNote }, t('tabDormant')))))
+          }
+          const render = node => {
+            if (!node) return null
+            if (node.kind === 'leaf') return collapsed.has(node.paneId) ? null : leaf(node.paneId)
+            const first = treeVisibleCount(node.first, collapsed)
+            const second = treeVisibleCount(node.second, collapsed)
+            if (first === 0) return render(node.second)
+            if (second === 0) return render(node.first)
+            return h('div', {
+              style: {
+                display: 'flex',
+                flexDirection: node.axis === 'row' ? 'row' : 'column',
+                flex: '1 1 auto',
+                minWidth: 0,
+                minHeight: 0,
+              },
+            },
+            h('div', {
+              style: { display: 'flex', flexDirection: 'column', flexGrow: node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 },
+            }, render(node.first)),
+            h('div', {
+              style: { display: 'flex', flexDirection: 'column', flexGrow: 1 - node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 },
+            }, render(node.second)))
+          }
+          return render(tab.tree)
         }
 
         const mountedIds = Array.from(new Set([board.activeTabId].concat(mountedTabs)))
@@ -3605,7 +3793,7 @@ const NOOP = () => {}
             }))),
           h('div', {
             ref: hostRef,
-            style: Object.assign({}, styles.host, { padding: metrics.pad }, splitAxis ? { cursor: splitAxis === 'row' ? 'row-resize' : 'col-resize', userSelect: 'none' } : null),
+            style: Object.assign({}, styles.host, { padding: metrics.pad }, splitAxis ? { cursor: splitAxis === 'col' ? 'row-resize' : 'col-resize', userSelect: 'none' } : null),
             'data-multisession-host': '',
           },
             mountedIds.map(id => {
@@ -3626,7 +3814,7 @@ const NOOP = () => {}
                     /* While one tile is maximised the others stay mounted but invisible. */
                     visibility: maximizedId ? 'hidden' : 'visible',
                   },
-                }, grid.length === 0
+                }, visibleCount === 0
                   ? h('div', { style: styles.center },
                     h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12.5 } }, t('allMinimized')))
                   : view)
@@ -3648,6 +3836,32 @@ const NOOP = () => {}
         },
         },
           body,
+          paneMenu && h('div', {
+            style: Object.assign({}, styles.paneMenu, { left: paneMenu.x, top: paneMenu.y }),
+            role: 'menu',
+            'data-pane-menu': '',
+            onContextMenu: event => event.preventDefault(),
+          },
+            h('button', {
+              type: 'button',
+              role: 'menuitem',
+              style: styles.paneMenuItem,
+              onClick: () => { splitPane(paneMenu.paneId, 'row'); closePaneMenu() },
+            }, t('splitRight')),
+            h('button', {
+              type: 'button',
+              role: 'menuitem',
+              style: styles.paneMenuItem,
+              onClick: () => { splitPane(paneMenu.paneId, 'col'); closePaneMenu() },
+            }, t('splitDown')),
+            (layout ? layout.panes.length : 1) > 1
+              ? h('button', {
+                type: 'button',
+                role: 'menuitem',
+                style: styles.paneMenuItem,
+                onClick: () => { closePane(paneMenu.paneId); closePaneMenu() },
+              }, t('closePane'))
+              : null),
           workspaceFor
             ? h(WorkspacePicker, {
               t,

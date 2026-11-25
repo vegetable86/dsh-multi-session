@@ -412,3 +412,11 @@ pm test 全绿。
 - 修法：`PaneShell` 持有 `drawerWidth` 状态（默认 420），抽屉左右两侧共用；抽屉左边缘加一个 8px 的拖柄（`DrawerHandle`，`role="separator"`），按下后监听窗口的 `pointermove`/`mousemove`，宽度 = 格内容区右边界 − 指针 x，夹在 [300, max(320, 格宽 − 120)] 之间；`pointerup`/`mouseup`/`pointercancel` 收尾。`onPointerDown` 与 `onMouseDown` 都接，用 `resizingRef` 去重，避免同一手势起两套监听。
 - 宽度按格子存在组件状态里：同一格的改动抽屉与文件预览共用它；切标签或重挂载回到 420px（未做持久化，避免把瞬时 UI 状态写进布局）。
 - 测试：`scripts/render-smoke.mjs` 断言抽屉有 `[data-drawer-handle]`，按住拖到 520px 后抽屉 `style.width === '480px'`。`npm test` 全绿。
+
+## 38. v0.22.0：任意格子上下/左右分屏（二叉分割树）
+
+- 需求：原来「一行两格、满了换行」的固定网格做不到「只把右半边再上下切开」。要像 tmux 的 `%`（左右）和 `"`（上下）那样，对任意一格继续二分，并且能一层层嵌套。
+- 模型：布局从「行 + 行内 1–2 格 + 两级权重」换成二叉分割树。叶子是格子；内部节点 `{ kind: 'split', axis: 'row' | 'col', ratio, first, second }`，`axis: 'row'` 左右并排、`axis: 'col'` 上下堆叠。存储版本升到 9，旧布局（v1–v8）在读取时由 `treeFromRows` 迁移成等价的树，不会丢。
+- 交互：右键格子标题栏弹出菜单（向右分屏 / 向下分屏 / 关闭此格）。分屏时把该叶子替换成同轴 split，比例 0.5，新建的空白格子立刻打开会话选择器。拖动分隔条只改所在节点的 `ratio`（夹在 5%–95%，并受最小格宽 200/230px、最小格高 140/160px 约束），两侧互补。「均分」把整棵树的 ratio 重置为 0.5。
+- 实现：`SplitBox` 递归渲染 split 节点，分隔条按下时记录本地预览比例，松手才提交一次；`TreeView` 把叶子交给 `renderCell`。最小化按叶子从可见树剪掉，兄弟节点顶上来；休眠标签递归渲染占位卡。
+- 测试：`scripts/render-smoke.mjs` 断言三格 = 1 个外层 col split + 内层 row split、拖动两侧 flexGrow 互补、存储 `version === 9` 且 ratio 正确、均分回 0.5、右键菜单分屏后新格 `sessionId === null`。`npm test` 全绿。
